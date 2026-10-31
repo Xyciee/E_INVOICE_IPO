@@ -14,9 +14,9 @@ import {
 import './login.css';
 
 export default function LoginPage() {
-  const { login, demoUsers } = useAuth();
-  const [email, setEmail] = useState('admin@invoicehub.com');
-  const [password, setPassword] = useState('admin123');
+  const { login } = useAuth();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -26,7 +26,7 @@ export default function LoginPage() {
     setError('');
 
     if (!email || !password) {
-      setError('Please enter both email and password.');
+      setError('Please enter both username and password.');
       return;
     }
 
@@ -37,12 +37,6 @@ export default function LoginPage() {
     if (!result.success) {
       setError(result.error || 'Authentication failed. Please check credentials.');
     }
-  };
-
-  const handleFillDemo = (demoEmail) => {
-    setEmail(demoEmail);
-    setPassword('admin123');
-    setError('');
   };
 
   return (
@@ -68,17 +62,16 @@ export default function LoginPage() {
         {/* Login Form */}
         <form onSubmit={handleSubmit} className="login-form">
           <div className="form-group">
-            <label className="form-label">Email Address</label>
             <div className="input-with-icon">
               <Mail size={16} className="input-icon-left" />
               <input
-                type="email"
+                type="text"
                 required
                 className="login-input"
-                placeholder="name@company.com"
+                placeholder="Username"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
+                autoComplete="username"
               />
             </div>
           </div>
@@ -112,7 +105,7 @@ export default function LoginPage() {
               <input type="checkbox" defaultChecked />
               <span>Remember this device</span>
             </label>
-            <a href="#forgot" onClick={(e) => { e.preventDefault(); alert('Demo password is: admin123'); }} className="forgot-link">
+            <a href="#forgot" onClick={(e) => { e.preventDefault(); alert('Please contact IT to reset your password.'); }} className="forgot-link">
               Forgot password?
             </a>
           </div>

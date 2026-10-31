@@ -105,21 +105,11 @@ export default function Sidebar({
           )}
         </a>
 
-        {/* Desktop Collapse / Expand Toggle */}
-        <button
-          className="sidebar-collapse-btn"
-          onClick={onToggleCollapse}
-          aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          title={isCollapsed ? 'Expand sidebar (Ctrl + B)' : 'Collapse sidebar (Ctrl + B)'}
-        >
-          {isCollapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
-        </button>
-
-        {/* Mobile Close Button (shown only on mobile) */}
+        {/* Mobile Close Button (shown only on mobile screens) */}
         <button
           className="sidebar-mobile-close-btn"
           onClick={onCloseMobile}
-          aria-label="Close mobile navigation"
+          aria-label="Close navigation menu"
         >
           <X size={18} />
         </button>
@@ -147,13 +137,15 @@ export default function Sidebar({
                       <span className="nav-item-icon">
                         <Icon size={19} />
                       </span>
-                      {!isCollapsed && (
+                      {!isCollapsed ? (
                         <>
                           <span className="nav-item-label">{item.label}</span>
                           {item.badge && (
                             <span className="nav-item-badge">{item.badge}</span>
                           )}
                         </>
+                      ) : (
+                        item.badge && <span className="nav-item-collapsed-dot" />
                       )}
                     </button>
                   </li>
@@ -164,13 +156,26 @@ export default function Sidebar({
         ))}
       </nav>
 
-      {/* Footer Profile Area with Logout */}
+      {/* Footer Controls & User Profile */}
       <div className="sidebar-footer">
+        {/* Collapse / Expand Toggle Button */}
+        <button
+          className="sidebar-toggle-action-btn"
+          onClick={onToggleCollapse}
+          title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          <span className="nav-item-icon">
+            {isCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+          </span>
+          {!isCollapsed && <span className="toggle-btn-label">Collapse Sidebar</span>}
+        </button>
+
+        {/* User Profile Card with Logout */}
         <div className="sidebar-user-card">
           <div className="sidebar-user-left">
             <div
               className="sidebar-user-avatar"
-              title={isCollapsed ? `${user?.name || 'Admin'} (${user?.role || 'User'})` : undefined}
+              title={isCollapsed ? `${user?.name || 'Administrator'} (${user?.role || 'User'})` : undefined}
             >
               {user?.avatar || 'AD'}
               <span className="avatar-online-dot" />
@@ -188,7 +193,6 @@ export default function Sidebar({
             className="sidebar-logout-btn"
             title="Sign Out"
             aria-label="Sign Out"
-            data-tooltip="Sign Out"
           >
             <LogOut size={16} />
           </button>

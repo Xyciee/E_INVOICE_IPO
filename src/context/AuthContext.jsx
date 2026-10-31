@@ -1,87 +1,63 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { apiLogin, apiLogout, apiCheckSession, getCsrfToken } from '../services/authService';
 
 const AuthContext = createContext(null);
 
-const DEMO_USERS = [
-  {
-    id: 'user_1',
-    name: 'Alex Diaz',
-    email: 'admin@invoicehub.com',
-    role: 'Super Admin',
-    avatar: 'AD',
-    department: 'Finance & Operations'
-  },
-  {
-    id: 'user_2',
-    name: 'Elena Rostova',
-    email: 'finance@invoicehub.com',
-    role: 'Billing Manager',
-    avatar: 'ER',
-    department: 'Accounting'
-  }
-];
-
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  // `loading` is ONLY for the initial session check on page load.
   const [loading, setLoading] = useState(true);
 
-  // Load persisted user session on mount
+  // On mount: the Django backend (/api/me) is the single source of truth.
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem('invoicehub_auth_user');
-      if (stored) {
-        setUser(JSON.parse(stored));
+    let isMounted = true;
+
+    async function initSession() {
+      // Remove any leftover fake/demo session from older builds
+      localStorage.removeItem('invoicehub_auth_user');
+
+      getCsrfToken().catch(() => {});
+
+      try {
+        const liveUser = await apiCheckSession();
+        if (isMounted) setUser(liveUser || null);
+      } catch (err) {
+        console.warn('Session verification failed:', err);
+        if (isMounted) setUser(null);
+      } finally {
+        if (isMounted) setLoading(false);
       }
-    } catch (err) {
-      console.error('Failed to parse stored auth user', err);
-    } finally {
-      setLoading(false);
     }
+
+    initSession();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  const login = async (email, password) => {
-    setLoading(true);
-    // Simulate API network latency
-    await new Promise((resolve) => setTimeout(resolve, 600));
+  const login = async (username, password) => {
+    // Do NOT toggle global `loading` here — App.jsx would unmount LoginPage
+    // and the error message would be lost. LoginPage shows its own spinner.
+    const result = await apiLogin(username, password);
 
-    // Simple authentication check
-    // Allow demo credentials or any valid email with a password of length >= 6
-    const matchedDemo = DEMO_USERS.find(
-      (u) => u.email.toLowerCase() === email.trim().toLowerCase()
-    );
-
-    if (matchedDemo && password === 'admin123') {
-      setUser(matchedDemo);
-      localStorage.setItem('invoicehub_auth_user', JSON.stringify(matchedDemo));
-      setLoading(false);
-      return { success: true };
-    } else if (password.length >= 6 && email.includes('@')) {
-      // Dynamic login support
-      const nameFromEmail = email.split('@')[0];
-      const dynamicUser = {
-        id: `user_${Date.now()}`,
-        name: nameFromEmail.charAt(0).toUpperCase() + nameFromEmail.slice(1),
-        email: email.trim(),
-        role: 'Administrator',
-        avatar: nameFromEmail.slice(0, 2).toUpperCase(),
-        department: 'General Administration'
-      };
-      setUser(dynamicUser);
-      localStorage.setItem('invoicehub_auth_user', JSON.stringify(dynamicUser));
-      setLoading(false);
-      return { success: true };
-    } else {
-      setLoading(false);
-      return {
-        success: false,
-        error: 'Invalid email or password. Use admin@invoicehub.com / admin123'
-      };
+    if (result.success) {
+      setUser(result.user);
+      return { success: true, user: result.user };
     }
+
+    setUser(null);
+    return {
+      success: false,
+      error: result.error || 'Authentication failed. Please check credentials.'
+    };
   };
 
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem('invoicehub_auth_user');
+  const logout = async () => {
+    try {
+      await apiLogout();
+    } finally {
+      setUser(null);
+    }
   };
 
   return (
@@ -91,8 +67,7 @@ export function AuthProvider({ children }) {
         isAuthenticated: !!user,
         loading,
         login,
-        logout,
-        demoUsers: DEMO_USERS
+        logout
       }}
     >
       {children}

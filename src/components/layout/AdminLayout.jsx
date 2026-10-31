@@ -18,12 +18,16 @@ export default function AdminLayout({ children, activePage, onSelectPage }) {
     setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
   };
 
-  const toggleSidebarCollapse = () => {
-    setIsSidebarCollapsed((prev) => !prev);
+  const handleToggleSidebar = () => {
+    if (window.innerWidth <= 768) {
+      setIsMobileSidebarOpen((prev) => !prev);
+    } else {
+      setIsSidebarCollapsed((prev) => !prev);
+    }
   };
 
-  const toggleMobileSidebar = () => {
-    setIsMobileSidebarOpen((prev) => !prev);
+  const toggleSidebarCollapse = () => {
+    setIsSidebarCollapsed((prev) => !prev);
   };
 
   const closeMobileSidebar = () => {
@@ -52,7 +56,7 @@ export default function AdminLayout({ children, activePage, onSelectPage }) {
       <div className="admin-main-wrapper">
         <Header
           activePage={activePage}
-          onToggleMobileSidebar={toggleMobileSidebar}
+          onToggleSidebar={handleToggleSidebar}
           theme={theme}
           onToggleTheme={toggleTheme}
         />

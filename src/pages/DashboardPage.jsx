@@ -9,9 +9,7 @@ import {
   ArrowUpRight,
   MoreVertical,
   Activity,
-  Send,
-  PieChart as PieChartIcon,
-  BarChart2
+  Send
 } from 'lucide-react';
 import './pages.css';
 
@@ -32,24 +30,6 @@ export default function DashboardPage({ onNavigate }) {
 
   const [activePointIndex, setActivePointIndex] = useState(monthlyData.length - 1);
   const activePoint = monthlyData[activePointIndex];
-
-  // Donut Tax Breakdown Data (SVG Circle Circumference: 2 * PI * 65 ≈ 408.4)
-  const totalTaxAmount = 4860000;
-  const taxCategories = [
-    { label: '12% Standard VAT Sales', pct: 68, amount: '₱3,304,800.00', color: '#3b82f6', strokeDash: '277.7 408.4', strokeOffset: '0' },
-    { label: 'Zero-Rated Sales (0% VAT)', pct: 22, amount: '₱1,069,200.00', color: '#10b981', strokeDash: '89.8 408.4', strokeOffset: '-277.7' },
-    { label: 'VAT-Exempt Sales', pct: 10, amount: '₱486,000.00', color: '#f59e0b', strokeDash: '40.8 408.4', strokeOffset: '-367.5' }
-  ];
-
-  const [hoveredTax, setHoveredTax] = useState(null);
-
-  // Weekly Fulfillment Bar Data
-  const weeklyData = [
-    { week: 'Week 1', orders: 32, invoiced: 29 },
-    { week: 'Week 2', orders: 38, invoiced: 36 },
-    { week: 'Week 3', orders: 45, invoiced: 41 },
-    { week: 'Week 4', orders: 52, invoiced: 49 }
-  ];
 
   // SVG Chart Geometry calculations
   const chartW = 560;
@@ -219,9 +199,9 @@ export default function DashboardPage({ onNavigate }) {
         })}
       </div>
 
-      {/* CHARTS ROW 1: Monthly Area Chart & BIR Tax Donut Chart */}
-      <div className="cards-grid-2" style={{ marginBottom: '24px' }}>
-        {/* CHART 1: Monthly E-Invoice Trajectory (Interactive Area/Line Chart) */}
+      {/* Main Content Grid: Revenue Trajectory Chart & Recently Sent Invoices */}
+      <div className="cards-grid-2">
+        {/* CHART: Monthly E-Invoice Trajectory (Interactive Area/Line Chart) */}
         <div className="card-section" style={{ position: 'relative' }}>
           <div className="card-section-header">
             <div>
@@ -327,162 +307,15 @@ export default function DashboardPage({ onNavigate }) {
           </div>
         </div>
 
-        {/* CHART 2: BIR Tax Breakdown (Interactive Radial Donut Chart) */}
+        {/* TABLE: Recently Sent Invoices */}
         <div className="card-section">
           <div className="card-section-header">
             <div>
-              <h2 className="card-section-title">BIR Tax Category Distribution</h2>
+              <h2 className="card-section-title">Recently Sent Invoices</h2>
               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                Official classification under Republic Act No. 11976 (EOPT Act)
+                Latest BIR stamped customer dispatches
               </div>
             </div>
-            <span className="badge badge-emerald">BIR Verified</span>
-          </div>
-
-          <div className="donut-layout">
-            {/* SVG Donut */}
-            <div style={{ position: 'relative', width: '180px', height: '180px' }}>
-              <svg className="donut-chart-svg" viewBox="0 0 180 180">
-                {/* Background Ring */}
-                <circle
-                  cx="90"
-                  cy="90"
-                  r="65"
-                  fill="transparent"
-                  stroke="var(--bg-app)"
-                  strokeWidth="24"
-                />
-                {/* Segment Arcs */}
-                {taxCategories.map((item, idx) => (
-                  <circle
-                    key={idx}
-                    cx="90"
-                    cy="90"
-                    r="65"
-                    className="donut-segment"
-                    stroke={item.color}
-                    strokeDasharray={item.strokeDash}
-                    strokeDashoffset={item.strokeOffset}
-                    onMouseEnter={() => setHoveredTax(item)}
-                    onMouseLeave={() => setHoveredTax(null)}
-                  />
-                ))}
-              </svg>
-
-              {/* Center Details */}
-              <div
-                style={{
-                  position: 'absolute',
-                  inset: 0,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  pointerEvents: 'none',
-                  textAlign: 'center'
-                }}
-              >
-                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-                  {hoveredTax ? hoveredTax.label.split(' ')[0] : 'Total'}
-                </span>
-                <span style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-main)' }}>
-                  {hoveredTax ? `${hoveredTax.pct}%` : '₱4.86M'}
-                </span>
-              </div>
-            </div>
-
-            {/* Legends */}
-            <div className="donut-legends">
-              {taxCategories.map((item, idx) => (
-                <div
-                  key={idx}
-                  className="legend-item"
-                  style={{
-                    padding: '8px 10px',
-                    borderRadius: 'var(--radius-md)',
-                    background: hoveredTax === item ? 'var(--bg-surface-hover)' : 'transparent',
-                    cursor: 'pointer',
-                    transition: 'all var(--transition-fast)'
-                  }}
-                  onMouseEnter={() => setHoveredTax(item)}
-                  onMouseLeave={() => setHoveredTax(null)}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span className="legend-color-dot" style={{ backgroundColor: item.color }} />
-                    <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{item.label}</span>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontWeight: 700 }}>{item.amount}</div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{item.pct}% of total</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* CHARTS ROW 2: Weekly Fulfillment Bar Chart & Recent Invoices */}
-      <div className="cards-grid-2">
-        {/* CHART 3: Weekly Orders vs E-Invoices Fulfillment Bar Chart */}
-        <div className="card-section">
-          <div className="card-section-header">
-            <div>
-              <h2 className="card-section-title">Weekly Orders vs E-Invoices Billed</h2>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                Comparison of received POs vs dispatched BIR E-invoices
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '12px', fontSize: '0.75rem', fontWeight: 600 }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '2px', backgroundColor: '#8b5cf6' }} />
-                Orders
-              </span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '2px', backgroundColor: '#3b82f6' }} />
-                Invoiced
-              </span>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '10px 0' }}>
-            {weeklyData.map((w, idx) => (
-              <div key={idx}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.825rem', marginBottom: '6px' }}>
-                  <span style={{ fontWeight: 600 }}>{w.week}</span>
-                  <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                    {w.invoiced} of {w.orders} orders billed ({Math.round((w.invoiced / w.orders) * 100)}%)
-                  </span>
-                </div>
-                <div style={{ display: 'flex', height: '18px', gap: '4px', background: 'var(--bg-app)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', padding: '2px' }}>
-                  <div
-                    style={{
-                      width: `${(w.orders / 60) * 100}%`,
-                      backgroundColor: '#8b5cf6',
-                      borderRadius: 'var(--radius-sm)',
-                      transition: 'width 0.4s ease'
-                    }}
-                    title={`${w.orders} Orders`}
-                  />
-                  <div
-                    style={{
-                      width: `${(w.invoiced / 60) * 100}%`,
-                      backgroundColor: '#3b82f6',
-                      borderRadius: 'var(--radius-sm)',
-                      transition: 'width 0.4s ease'
-                    }}
-                    title={`${w.invoiced} Invoiced`}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Recently Sent Invoices Table */}
-        <div className="card-section">
-          <div className="card-section-header">
-            <h2 className="card-section-title">Recently Sent Invoices</h2>
             <button
               className="btn btn-outline"
               style={{ padding: '4px 10px', fontSize: '0.75rem' }}

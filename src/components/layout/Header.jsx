@@ -18,6 +18,7 @@ import { useAuth } from '../../context/AuthContext';
 
 export default function Header({
   activePage,
+  onToggleSidebar,
   onToggleMobileSidebar,
   theme,
   onToggleTheme
@@ -51,14 +52,17 @@ export default function Header({
     }
   ];
 
+  const handleToggle = onToggleSidebar || onToggleMobileSidebar;
+
   return (
     <header className="admin-header">
-      {/* Left: Mobile Toggle & Breadcrumbs */}
+      {/* Left: Sidebar Toggle & Breadcrumbs */}
       <div className="header-left">
         <button
-          className="mobile-toggle-btn"
-          onClick={onToggleMobileSidebar}
-          aria-label="Toggle Navigation Menu"
+          className="sidebar-toggle-btn"
+          onClick={handleToggle}
+          aria-label="Toggle Sidebar Navigation"
+          title="Toggle Navigation (Menu)"
         >
           <Menu size={20} />
         </button>
