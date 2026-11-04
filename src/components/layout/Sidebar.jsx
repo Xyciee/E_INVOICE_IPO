@@ -77,7 +77,6 @@ export default function Sidebar({
           id: 'invoices',
           label: 'Invoices Tracker',
           icon: Receipt,
-          badge: '14'
         },
         {
           id: 'credit-notes',
