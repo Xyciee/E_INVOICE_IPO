@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { NotificationProvider } from './context/NotificationContext';
 import LoginPage from './pages/LoginPage';
 import AdminLayout from './components/layout/AdminLayout';
 import DashboardPage from './pages/DashboardPage';
@@ -8,6 +9,9 @@ import OrdersPage from './pages/OrdersPage';
 import InvoicesPage from './pages/InvoicesPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import SettingsPage from './pages/SettingsPage';
+import ApiTesterPage from './pages/ApiTesterPage';
+import CreditNotesPage from './pages/CreditNotesPage';
+import ErrorBoundary from './components/feedback/ErrorBoundary';
 
 function AppContent() {
   const { isAuthenticated, loading } = useAuth();
@@ -58,10 +62,14 @@ function AppContent() {
         return <OrdersPage onNavigate={setActivePage} />;
       case 'invoices':
         return <InvoicesPage />;
+      case 'credit-notes':
+        return <CreditNotesPage />;
       case 'analytics':
         return <AnalyticsPage />;
       case 'settings':
         return <SettingsPage />;
+      case 'api-tester':
+        return <ApiTesterPage />;
       default:
         return <DashboardPage onNavigate={setActivePage} />;
     }
@@ -69,15 +77,19 @@ function AppContent() {
 
   return (
     <AdminLayout activePage={activePage} onSelectPage={setActivePage}>
-      {renderActivePage()}
+      <ErrorBoundary key={activePage}>
+        {renderActivePage()}
+      </ErrorBoundary>
     </AdminLayout>
   );
 }
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <NotificationProvider>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </NotificationProvider>
   );
 }

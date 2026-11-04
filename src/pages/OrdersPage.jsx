@@ -70,8 +70,8 @@ export default function OrdersPage() {
     if (!res.ok) {
       setErrorMsg(
         res.data?.detail ||
-          res.data?.message ||
-          `Unable to load orders (${res.status}).`
+        res.data?.message ||
+        `Unable to load orders (${res.status}).`
       );
     } else {
       setDocuments([]);
@@ -93,8 +93,8 @@ export default function OrdersPage() {
       } else if (!res.ok) {
         setErrorMsg(
           res.data?.detail ||
-            res.data?.message ||
-            `Unable to load orders (${res.status}).`
+          res.data?.message ||
+          `Unable to load orders (${res.status}).`
         );
       }
       setLoading(false);
@@ -341,9 +341,8 @@ export default function OrdersPage() {
                     <td style={{ fontWeight: 700 }}>₱{doc.totalAmount}</td>
                     <td>
                       <span
-                        className={`badge ${
-                          doc.replacedBy ? 'badge-rose' : 'badge-emerald'
-                        }`}
+                        className={`badge ${doc.replacedBy ? 'badge-rose' : 'badge-emerald'
+                          }`}
                       >
                         {doc.replacedBy ? 'REPLACED' : doc.status}
                       </span>
@@ -521,19 +520,19 @@ export default function OrdersPage() {
                     {(selectedDoc.lines && selectedDoc.lines.length > 0
                       ? selectedDoc.lines
                       : [
-                          {
-                            id: 1,
-                            productName:
-                              selectedDoc.productSummary !== '—'
-                                ? selectedDoc.productSummary
-                                : `${selectedDoc.platform} Order #${selectedDoc.orderId}`,
-                            sku: '',
-                            qty: 1,
-                            unitPrice: selectedDoc.totalAmount,
-                            vatAmount: selectedDoc.vatAmount,
-                            lineTotal: selectedDoc.totalAmount
-                          }
-                        ]
+                        {
+                          id: 1,
+                          productName:
+                            selectedDoc.productSummary !== '—'
+                              ? selectedDoc.productSummary
+                              : `${selectedDoc.platform} Order #${selectedDoc.orderId}`,
+                          sku: '',
+                          qty: 1,
+                          unitPrice: selectedDoc.totalAmount,
+                          vatAmount: selectedDoc.vatAmount,
+                          lineTotal: selectedDoc.totalAmount
+                        }
+                      ]
                     ).map((line, i) => (
                       <tr key={line.id || i}>
                         <td>

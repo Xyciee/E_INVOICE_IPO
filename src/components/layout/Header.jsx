@@ -71,7 +71,11 @@ export default function Header({
           <span className="breadcrumb-root">Portal</span>
           <ChevronRight size={14} className="breadcrumb-separator" />
           <span className="breadcrumb-active">
-            {activePage.charAt(0).toUpperCase() + activePage.slice(1)}
+            {activePage === 'credit-notes'
+              ? 'Credit Notes'
+              : activePage === 'api-tester'
+              ? 'API Tester'
+              : activePage.charAt(0).toUpperCase() + activePage.slice(1)}
           </span>
         </div>
       </div>

@@ -4,14 +4,17 @@ import {
   ScanLine,
   ShoppingCart,
   Receipt,
+  FileMinus,
   BarChart3,
   Settings,
   ChevronLeft,
   ChevronRight,
   LogOut,
+  Terminal,
   X
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useConfirm, useNotify } from '../../context/NotificationContext';
 
 export default function Sidebar({
   activePage,
@@ -22,6 +25,26 @@ export default function Sidebar({
   onCloseMobile
 }) {
   const { user, logout } = useAuth();
+  const confirm = useConfirm();
+  const notify = useNotify();
+
+  const handleLogout = async () => {
+    const ok = await confirm({
+      title: 'Sign out?',
+      message: 'You will need to sign in again to access the E-Invoice System.',
+      confirmText: 'Sign Out',
+      cancelText: 'Stay Signed In',
+      variant: 'danger'
+    });
+    if (!ok) return;
+
+    try {
+      await logout();
+      notify.success('Signed out', 'You have been signed out successfully.');
+    } catch {
+      notify.danger('Sign out failed', 'Could not reach the server. Please try again.');
+    }
+  };
 
   const navGroups = [
     {
@@ -54,7 +77,13 @@ export default function Sidebar({
           id: 'invoices',
           label: 'Invoices Tracker',
           icon: Receipt,
-          badge: null
+          badge: '14'
+        },
+        {
+          id: 'credit-notes',
+          label: 'Credit Notes',
+          icon: FileMinus,
+          badge: '3'
         }
       ]
     },
@@ -65,6 +94,12 @@ export default function Sidebar({
           id: 'analytics',
           label: 'Analytics',
           icon: BarChart3,
+          badge: null
+        },
+        {
+          id: 'api-tester',
+          label: 'API Tester',
+          icon: Terminal,
           badge: null
         },
         {
@@ -86,9 +121,8 @@ export default function Sidebar({
 
   return (
     <aside
-      className={`admin-sidebar ${isCollapsed ? 'collapsed' : ''} ${
-        isMobileOpen ? 'mobile-open' : ''
-      }`}
+      className={`admin-sidebar ${isCollapsed ? 'collapsed' : ''} ${isMobileOpen ? 'mobile-open' : ''
+        }`}
     >
       <div className="sidebar-header">
         <a
@@ -161,17 +195,7 @@ export default function Sidebar({
       </nav>
 
       <div className="sidebar-footer">
-        <button
-          className="sidebar-toggle-action-btn"
-          onClick={onToggleCollapse}
-          title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          <span className="nav-item-icon">
-            {isCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
-          </span>
-          {!isCollapsed && <span className="toggle-btn-label">Collapse Sidebar</span>}
-        </button>
-
+        {/* User Profile Card with Logout */}
         <div className="sidebar-user-card">
           <div className="sidebar-user-left">
             <div
@@ -190,7 +214,7 @@ export default function Sidebar({
           </div>
 
           <button
-            onClick={logout}
+            onClick={handleLogout}
             className="sidebar-logout-btn"
             title="Sign Out"
             aria-label="Sign Out"

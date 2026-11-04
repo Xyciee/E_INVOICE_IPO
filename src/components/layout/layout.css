@@ -588,10 +588,20 @@
    -------------------------------------------------------------------------- */
 .admin-page-container {
   flex: 1;
-  padding: 24px;
-  max-width: 1440px;
+  padding: 24px 32px;
   width: 100%;
-  margin: 0 auto;
+  max-width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+@media (min-width: 1921px) {
+  .admin-page-container {
+    max-width: 1800px;
+    margin: 0 auto;
+  }
 }
 
 /* --------------------------------------------------------------------------

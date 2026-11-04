@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useNotify } from '../context/NotificationContext';
 import {
   Sparkles,
   Mail,
@@ -15,6 +16,7 @@ import './login.css';
 
 export default function LoginPage() {
   const { login } = useAuth();
+  const notify = useNotify();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -27,6 +29,7 @@ export default function LoginPage() {
 
     if (!email || !password) {
       setError('Please enter both username and password.');
+      notify.warning('Missing details', 'Please enter both username and password.');
       return;
     }
 
@@ -34,8 +37,20 @@ export default function LoginPage() {
     const result = await login(email, password);
     setLoading(false);
 
-    if (!result.success) {
-      setError(result.error || 'Authentication failed. Please check credentials.');
+    if (result.success) {
+      notify.success(
+        'Welcome back!',
+        `Signed in as ${result.user?.name || result.user?.username || email}.`
+      );
+      return;
+    }
+
+    const message = result.error || 'Authentication failed. Please check credentials.';
+    setError(message);
+    if (/too many|throttl/i.test(message)) {
+      notify.warning('Too many attempts', message);
+    } else {
+      notify.danger('Sign in failed', message);
     }
   };
 
