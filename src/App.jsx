@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
 import AdminLayout from './components/layout/AdminLayout';
 import DashboardPage from './pages/DashboardPage';
+import PackingScanPage from './pages/PackingScanPage';
 import OrdersPage from './pages/OrdersPage';
 import InvoicesPage from './pages/InvoicesPage';
 import AnalyticsPage from './pages/AnalyticsPage';
@@ -12,7 +13,6 @@ function AppContent() {
   const { isAuthenticated, loading } = useAuth();
   const [activePage, setActivePage] = useState('dashboard');
 
-  // Handle initial session loading state
   if (loading) {
     return (
       <div
@@ -44,16 +44,16 @@ function AppContent() {
     );
   }
 
-  // If user is not authenticated, show Login page
   if (!isAuthenticated) {
     return <LoginPage />;
   }
 
-  // If authenticated, render Admin Dashboard with active page
   const renderActivePage = () => {
     switch (activePage) {
       case 'dashboard':
         return <DashboardPage onNavigate={setActivePage} />;
+      case 'packing-scan':
+        return <PackingScanPage />;
       case 'orders':
         return <OrdersPage onNavigate={setActivePage} />;
       case 'invoices':

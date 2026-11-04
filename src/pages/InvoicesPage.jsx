@@ -1,243 +1,362 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Send,
-  Inbox,
-  Search,
+  Printer,
   Download,
-  Plus,
+  Search,
+  RefreshCw,
   CheckCircle2,
-  Clock,
-  AlertCircle,
   FileText,
-  Mail,
-  ExternalLink,
-  Filter,
-  Check,
-  Building2
+  X
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import {
+  searchDocuments,
+  fetchDocumentDetails,
+  fetchOrderDraft,
+  logInvoicePrint,
+  extractDocumentList,
+  normalizeDocumentRecord,
+  normalizeReprintReasons,
+  getPrintedInvoiceRecords,
+  savePrintedInvoiceRecord,
+  downloadWaybillSoftCopy
+} from '../services/scanService';
+import WaybillTicket from '../components/WaybillTicket';
 import './pages.css';
 
+const FILTER_TABS = ['All', 'TikTok', 'Shopee', 'Lazada', 'Reprinted'];
+const ITEMS_PER_PAGE = 10;
+
+function getPlatformBadge(platform) {
+  const p = String(platform || '').toLowerCase();
+  if (p.includes('tiktok')) return 'badge-primary';
+  if (p.includes('shopee')) return 'badge-amber';
+  if (p.includes('lazada')) return 'badge-emerald';
+  return 'badge-primary';
+}
+
+function mergePrintedAndApiDocs(localPrinted, apiDocs) {
+  const map = new Map();
+
+  for (const item of localPrinted) {
+    if (!item) continue;
+    const key = String(item.id || item.documentNumber || item.orderId || Math.random());
+    map.set(key, {
+      ...item,
+      printCount: Number(item.printCount || item.prints?.length || 1),
+      isReprint: Boolean(item.isReprint || (item.printCount || item.prints?.length || 0) > 1)
+    });
+  }
+
+  for (const doc of apiDocs) {
+    if (!doc) continue;
+    const matchKey =
+      Array.from(map.keys()).find((k) => {
+        const existing = map.get(k);
+        return (
+          (doc.id && existing.id && String(doc.id) === String(existing.id)) ||
+          (doc.documentNumber &&
+            doc.documentNumber !== '—' &&
+            existing.documentNumber === doc.documentNumber)
+        );
+      }) || String(doc.id || doc.documentNumber || doc.orderId);
+
+    const existing = map.get(matchKey);
+    const apiPrintCount = Array.isArray(doc.prints) ? doc.prints.length : 0;
+
+    if (existing) {
+      const mergedCount = Math.max(Number(existing.printCount || 1), apiPrintCount, 1);
+      map.set(matchKey, {
+        ...doc,
+        ...existing,
+        lines: existing.lines?.length ? existing.lines : doc.lines,
+        prints: doc.prints?.length ? doc.prints : existing.prints,
+        printCount: mergedCount,
+        isReprint: Boolean(existing.isReprint || mergedCount > 1)
+      });
+    } else {
+      map.set(matchKey, {
+        ...doc,
+        lastPrintedAt:
+          doc.prints?.[0]?.printed_at ||
+          doc.prints?.[0]?.created_at ||
+          doc.issuedAt ||
+          '—',
+        printCount: Math.max(apiPrintCount, 1),
+        isReprint: apiPrintCount > 1
+      });
+    }
+  }
+
+  return Array.from(map.values());
+}
+
 export default function InvoicesPage() {
-  const [activeTab, setActiveTab] = useState('sent'); // 'sent' | 'requests'
-  const [sentFilter, setSentFilter] = useState('All');
-  const [requestFilter, setRequestFilter] = useState('All');
+  const { user } = useAuth();
+  const reprintReasons = normalizeReprintReasons(user?.reprintReasons);
+
+  const [invoices, setInvoices] = useState(() => getPrintedInvoiceRecords());
+  const [loading, setLoading] = useState(true);
+  const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
   const [notificationMsg, setNotificationMsg] = useState('');
 
-  // 1. Data: Tracker of Customers Already Sent Invoices
-  const [sentInvoices, setSentInvoices] = useState([
-    {
-      id: 'INV-2026-0428',
-      birClearance: 'BIR-EINV-902148',
-      customer: 'San Miguel Brewery Corp',
-      tin: '000-128-940-000',
-      dateSent: 'Oct 28, 2026',
-      dueDate: 'Nov 27, 2026',
-      amount: '₱345,000.00',
-      recipientEmail: 'ap.invoices@sanmiguel.com.ph',
-      deliveryStatus: 'Customer Acknowledged',
-      paymentStatus: 'Paid',
-      paymentBadge: 'badge-emerald'
-    },
-    {
-      id: 'INV-2026-0427',
-      birClearance: 'BIR-EINV-902147',
-      customer: 'Jollibee Worldwide Services',
-      tin: '001-982-311-000',
-      dateSent: 'Oct 27, 2026',
-      dueDate: 'Nov 11, 2026',
-      amount: '₱128,500.00',
-      recipientEmail: 'e-invoicing@jollibee.com.ph',
-      deliveryStatus: 'Delivered (Email Sent)',
-      paymentStatus: 'Unpaid',
-      paymentBadge: 'badge-amber'
-    },
-    {
-      id: 'INV-2026-0426',
-      birClearance: 'BIR-EINV-902146',
-      customer: 'Ayala Land Properties Inc',
-      tin: '002-334-118-000',
-      dateSent: 'Oct 25, 2026',
-      dueDate: 'Dec 24, 2026',
-      amount: '₱890,000.00',
-      recipientEmail: 'finance.billing@ayalaland.com.ph',
-      deliveryStatus: 'Customer Acknowledged',
-      paymentStatus: 'Unpaid',
-      paymentBadge: 'badge-amber'
-    },
-    {
-      id: 'INV-2026-0425',
-      birClearance: 'BIR-EINV-902145',
-      customer: 'SM Prime Holdings',
-      tin: '000-449-712-000',
-      dateSent: 'Oct 22, 2026',
-      dueDate: 'Nov 06, 2026',
-      amount: '₱412,000.00',
-      recipientEmail: 'vendor.invoice@smprime.com',
-      deliveryStatus: 'Customer Acknowledged',
-      paymentStatus: 'Paid',
-      paymentBadge: 'badge-emerald'
-    },
-    {
-      id: 'INV-2026-0424',
-      birClearance: 'BIR-EINV-902144',
-      customer: 'Universal Robina Corp',
-      tin: '000-721-508-000',
-      dateSent: 'Oct 15, 2026',
-      dueDate: 'Oct 30, 2026',
-      amount: '₱560,000.00',
-      recipientEmail: 'urc.accounting@urc.com.ph',
-      deliveryStatus: 'Delivered (Email Sent)',
-      paymentStatus: 'Overdue',
-      paymentBadge: 'badge-rose'
-    },
-    {
-      id: 'INV-2026-0423',
-      birClearance: 'BIR-EINV-902143',
-      customer: 'Megaworld Lifestyle Malls',
-      tin: '003-918-204-000',
-      dateSent: 'Oct 12, 2026',
-      dueDate: 'Nov 11, 2026',
-      amount: '₱94,500.00',
-      recipientEmail: 'billing@megaworldcorp.com',
-      deliveryStatus: 'Customer Acknowledged',
-      paymentStatus: 'Paid',
-      paymentBadge: 'badge-emerald'
+  const [reprintModalDoc, setReprintModalDoc] = useState(null);
+  const [selectedReason, setSelectedReason] = useState(
+    reprintReasons[0]?.code || 'damaged'
+  );
+  const [reprintNote, setReprintNote] = useState('');
+  const [reprintLoading, setReprintLoading] = useState(false);
+
+  const [printableDoc, setPrintableDoc] = useState(null);
+
+  const showToast = useCallback((msg) => {
+    setNotificationMsg(msg);
+    setTimeout(() => {
+      setNotificationMsg((prev) => (prev === msg ? '' : prev));
+    }, 4500);
+  }, []);
+
+  const hydrateFullDoc = useCallback(async (doc) => {
+    if (!doc) return doc;
+    let updated = { ...doc };
+
+    if (doc.id) {
+      const detailRes = await fetchDocumentDetails(doc.id);
+      if (detailRes.ok && detailRes.data) {
+        const norm = normalizeDocumentRecord(detailRes.data);
+        if (norm) {
+          updated = {
+            ...updated,
+            ...norm,
+            tracking:
+              norm.tracking && norm.tracking !== '—' ? norm.tracking : updated.tracking,
+            lines: norm.lines?.length ? norm.lines : updated.lines
+          };
+        }
+      }
     }
-  ]);
 
-  // 2. Data: Customer Request Invoices List
-  const [invoiceRequests, setInvoiceRequests] = useState([
-    {
-      requestId: 'REQ-2026-091',
-      customer: 'Globe Telecom Inc',
-      tin: '000-461-322-000',
-      poReference: 'PO-GLB-9021',
-      requestDate: 'Oct 30, 2026 (Today)',
-      contactEmail: 'corp.billing@globe.com.ph',
-      amount: '₱745,000.00',
-      itemsCount: 14,
-      priority: 'Urgent',
-      status: 'Pending Generation'
-    },
-    {
-      requestId: 'REQ-2026-090',
-      customer: 'BDO Unibank Procurement',
-      tin: '000-112-984-000',
-      poReference: 'PO-BDO-4431',
-      requestDate: 'Oct 29, 2026',
-      contactEmail: 'vendor.payables@bdo.com.ph',
-      amount: '₱1,250,000.00',
-      itemsCount: 32,
-      priority: 'Standard',
-      status: 'Pending Generation'
-    },
-    {
-      requestId: 'REQ-2026-089',
-      customer: 'PLDT Enterprise Solutions',
-      tin: '000-332-901-000',
-      poReference: 'PO-PLDT-8820',
-      requestDate: 'Oct 28, 2026',
-      contactEmail: 'einv.processing@pldt.com.ph',
-      amount: '₱480,000.00',
-      itemsCount: 8,
-      priority: 'Standard',
-      status: 'Pending Generation'
-    },
-    {
-      requestId: 'REQ-2026-088',
-      customer: 'Puregold Price Club Inc',
-      tin: '004-981-229-000',
-      poReference: 'PO-PG-6712',
-      requestDate: 'Oct 27, 2026',
-      contactEmail: 'trade.invoices@puregold.com.ph',
-      amount: '₱310,500.00',
-      itemsCount: 19,
-      priority: 'Urgent',
-      status: 'In Review'
+    if ((!updated.lines || updated.lines.length === 0) && updated.platform && updated.storeId && updated.orderId && updated.orderId !== '—') {
+      const draftRes = await fetchOrderDraft(updated.platform, updated.storeId, updated.orderId);
+      if (draftRes.ok && draftRes.data) {
+        const draftNorm = normalizeDocumentRecord(draftRes.data);
+        if (draftNorm && draftNorm.lines?.length) {
+          updated = {
+            ...updated,
+            lines: draftNorm.lines,
+            productSummary:
+              updated.productSummary !== '—' ? updated.productSummary : draftNorm.productSummary,
+            discountAmount:
+              updated.discountAmount !== '0.00' ? updated.discountAmount : draftNorm.discountAmount,
+            vatableSales:
+              updated.vatableSales !== '0.00' ? updated.vatableSales : draftNorm.vatableSales,
+            vatAmount:
+              updated.vatAmount !== '0.00' ? updated.vatAmount : draftNorm.vatAmount
+          };
+        }
+      }
     }
-  ]);
 
-  const handleGenerateAndSend = (request) => {
-    // Generate new sent invoice record
-    const newInvoiceId = `INV-2026-${Math.floor(1000 + Math.random() * 9000)}`;
-    const newClearance = `BIR-EINV-${Math.floor(900000 + Math.random() * 100000)}`;
+    return updated;
+  }, []);
 
-    const newSentItem = {
-      id: newInvoiceId,
-      birClearance: newClearance,
-      customer: request.customer,
-      tin: request.tin,
-      dateSent: 'Just now',
-      dueDate: '30 Days Net',
-      amount: request.amount,
-      recipientEmail: request.contactEmail,
-      deliveryStatus: 'Delivered (Email Sent)',
-      paymentStatus: 'Unpaid',
-      paymentBadge: 'badge-amber'
+  const loadPrintedInvoices = useCallback(async (q = '') => {
+    setLoading(true);
+    const localList = getPrintedInvoiceRecords();
+
+    const res = await searchDocuments(q.trim());
+    let apiNormalized = [];
+    if (res.ok && res.data) {
+      const rawList = extractDocumentList(res.data);
+      apiNormalized = rawList.map(normalizeDocumentRecord).filter(Boolean);
+    }
+
+    const merged = mergePrintedAndApiDocs(
+      q.trim()
+        ? localList.filter((item) => {
+            const term = q.trim().toLowerCase();
+            return (
+              String(item.documentNumber || '').toLowerCase().includes(term) ||
+              String(item.orderId || '').toLowerCase().includes(term) ||
+              String(item.tracking || '').toLowerCase().includes(term) ||
+              String(item.buyerName || '').toLowerCase().includes(term)
+            );
+          })
+        : localList,
+      apiNormalized
+    );
+
+    setInvoices(merged);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function init() {
+      const localList = getPrintedInvoiceRecords();
+      const res = await searchDocuments('');
+      if (!active) return;
+
+      let apiNormalized = [];
+      if (res.ok && res.data) {
+        const rawList = extractDocumentList(res.data);
+        apiNormalized = rawList.map(normalizeDocumentRecord).filter(Boolean);
+      }
+
+      const merged = mergePrintedAndApiDocs(localList, apiNormalized);
+      setInvoices(merged);
+      setLoading(false);
+    }
+
+    init();
+    return () => {
+      active = false;
     };
+  }, []);
 
-    // Remove from requests list and append to sent list
-    setInvoiceRequests(prev => prev.filter(r => r.requestId !== request.requestId));
-    setSentInvoices(prev => [newSentItem, ...prev]);
+  const openReprintModal = async (inv) => {
+    setSelectedReason(reprintReasons[0]?.code || 'damaged');
+    setReprintNote('');
+    setReprintModalDoc(inv);
 
-    setNotificationMsg(`E-Invoice ${newInvoiceId} generated with BIR clearance ${newClearance} and dispatched to ${request.contactEmail}!`);
-    setTimeout(() => setNotificationMsg(''), 5000);
+    const hydrated = await hydrateFullDoc(inv);
+    if (hydrated) {
+      setReprintModalDoc(hydrated);
+    }
   };
 
-  const handleResendInvoice = (inv) => {
-    setNotificationMsg(`E-Invoice ${inv.id} successfully resent to ${inv.recipientEmail}.`);
-    setTimeout(() => setNotificationMsg(''), 4000);
+  const handleConfirmReprint = async () => {
+    if (!reprintModalDoc) return;
+    setReprintLoading(true);
+
+    const hydrated = await hydrateFullDoc(reprintModalDoc);
+    const targetDoc = hydrated || reprintModalDoc;
+    const docId = targetDoc.id || targetDoc.documentNumber;
+
+    if (docId && docId !== '—') {
+      await logInvoicePrint(docId, {
+        reason: selectedReason,
+        note: reprintNote.trim() || 'Reprinted from E-Invoice Management Portal'
+      });
+    }
+
+    const updatedLocal = savePrintedInvoiceRecord(targetDoc, {
+      tracking: targetDoc.tracking,
+      isReprint: true,
+      reprintReason: selectedReason
+    });
+
+    setInvoices((prev) => mergePrintedAndApiDocs(updatedLocal, prev));
+    setPrintableDoc({
+      ...targetDoc,
+      isReprint: true
+    });
+    setReprintLoading(false);
+    setReprintModalDoc(null);
+
+    showToast(
+      `Reprinting E-Invoice ${targetDoc.documentNumber} (Reason: ${selectedReason.replace(/_/g, ' ')})...`
+    );
+
+    setTimeout(() => {
+      window.print();
+    }, 150);
   };
 
-  // Filtered Sent Invoices
-  const filteredSent = sentInvoices.filter((inv) => {
-    const matchesFilter =
-      sentFilter === 'All' || inv.paymentStatus === sentFilter;
-    const matchesSearch =
-      inv.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      inv.customer.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      inv.birClearance.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesFilter && matchesSearch;
+  const handleDownloadSoftCopy = async (inv) => {
+    const hydrated = await hydrateFullDoc(inv);
+    const targetDoc = hydrated || inv;
+    downloadWaybillSoftCopy(targetDoc);
+    showToast(`Downloaded soft copy for E-Invoice ${targetDoc.documentNumber}.`);
+  };
+
+  const filteredInvoices = invoices.filter((inv) => {
+    const matchesTab =
+      activeFilter === 'All'
+        ? true
+        : activeFilter === 'Reprinted'
+          ? Boolean(inv.isReprint || (inv.printCount || 0) > 1)
+          : String(inv.platform || '').toLowerCase() === activeFilter.toLowerCase();
+
+    if (!matchesTab) return false;
+
+    const term = searchQuery.trim().toLowerCase();
+    if (!term) return true;
+
+    return (
+      String(inv.documentNumber || '').toLowerCase().includes(term) ||
+      String(inv.orderId || '').toLowerCase().includes(term) ||
+      String(inv.tracking || '').toLowerCase().includes(term) ||
+      String(inv.buyerName || '').toLowerCase().includes(term) ||
+      String(inv.productSummary || '').toLowerCase().includes(term)
+    );
   });
 
-  // Filtered Requests
-  const filteredRequests = invoiceRequests.filter((req) => {
-    const matchesFilter =
-      requestFilter === 'All' || req.status === requestFilter;
-    const matchesSearch =
-      req.requestId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      req.customer.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      req.poReference.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesFilter && matchesSearch;
-  });
+  const totalPages = Math.max(1, Math.ceil(filteredInvoices.length / ITEMS_PER_PAGE));
+  const safePage = Math.min(currentPage, totalPages);
+  const startIdx = (safePage - 1) * ITEMS_PER_PAGE;
+  const paginatedInvoices = filteredInvoices.slice(startIdx, startIdx + ITEMS_PER_PAGE);
+
+  const totalPrintedValue = filteredInvoices.reduce((sum, inv) => {
+    const num = parseFloat(String(inv.totalAmount || '0').replace(/[^0-9.-]+/g, ''));
+    return sum + (Number.isFinite(num) ? num : 0);
+  }, 0);
+
+  const totalVatValue = filteredInvoices.reduce((sum, inv) => {
+    const num = parseFloat(String(inv.vatAmount || '0').replace(/[^0-9.-]+/g, ''));
+    return sum + (Number.isFinite(num) ? num : 0);
+  }, 0);
+
+  const reprintedCount = filteredInvoices.filter(
+    (inv) => inv.isReprint || (inv.printCount || 0) > 1
+  ).length;
+
+  const getDisplayLines = (doc) => {
+    if (!doc) return [];
+    if (Array.isArray(doc.lines) && doc.lines.length > 0) return doc.lines;
+    return [
+      {
+        id: 1,
+        productName:
+          doc.productSummary && doc.productSummary !== '—'
+            ? doc.productSummary
+            : `${doc.platform || 'Marketplace'} Order #${doc.orderId || '—'}`,
+        sku: '',
+        qty: 1,
+        unitPrice: doc.totalAmount || '0.00',
+        vatAmount: doc.vatAmount || '0.00',
+        lineTotal: doc.totalAmount || '0.00'
+      }
+    ];
+  };
 
   return (
     <div>
-      {/* Page Header */}
-      <div className="page-header">
+      <div className="page-header no-print">
         <div>
           <h1 className="page-title">E-Invoice Management Portal</h1>
           <p className="page-subtitle">
-            Track customer sent invoices with BIR clearance tokens and fulfill incoming customer invoice requests.
+            List of scanned and printed BIR E-Invoices with options to reprint waybills or download soft copies.
           </p>
         </div>
         <div className="page-actions">
-          <button className="btn btn-outline" onClick={() => alert('Downloading official BIR XML report...')}>
-            <Download size={16} /> BIR Compliance Export
-          </button>
           <button
-            className="btn btn-primary"
-            onClick={() => setActiveTab('requests')}
+            type="button"
+            className="btn btn-outline"
+            onClick={() => loadPrintedInvoices(searchQuery)}
+            disabled={loading}
           >
-            <Inbox size={16} /> View Requests ({invoiceRequests.length})
+            <RefreshCw size={15} /> Refresh List
           </button>
         </div>
       </div>
 
-      {/* Instant Notification Toast */}
       {notificationMsg && (
         <div
+          className="no-print"
           style={{
             backgroundColor: 'rgba(16, 185, 129, 0.15)',
             border: '1px solid rgba(16, 185, 129, 0.3)',
@@ -249,8 +368,7 @@ export default function InvoicesPage() {
             alignItems: 'center',
             gap: '10px',
             fontWeight: 600,
-            fontSize: '0.875rem',
-            animation: 'fadeIn 0.2s ease'
+            fontSize: '0.875rem'
           }}
         >
           <CheckCircle2 size={18} />
@@ -258,359 +376,456 @@ export default function InvoicesPage() {
         </div>
       )}
 
-      {/* Summary Metrics in Philippine Peso */}
-      <div className="stats-grid">
+      <div className="stats-grid no-print">
         <div className="stat-card">
           <div className="stat-card-header">
-            <span className="stat-card-label">Total Invoices Sent</span>
-            <div className="stat-card-icon-wrap" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}>
-              <Send size={20} />
+            <span className="stat-card-label">Total E-Invoices Printed</span>
+            <div
+              className="stat-card-icon-wrap"
+              style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}
+            >
+              <Printer size={20} />
             </div>
           </div>
-          <div className="stat-card-value">₱2,430,000.00</div>
+          <div className="stat-card-value">
+            ₱{totalPrintedValue.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
           <div className="stat-card-footer">
-            <span className="badge badge-primary">{sentInvoices.length} Dispatched</span>
-            <span className="trend-description">with BIR QR signatures</span>
+            <span className="badge badge-primary">{filteredInvoices.length} Printed</span>
+            <span className="trend-description">from Packing Scan Station</span>
           </div>
         </div>
 
         <div className="stat-card">
           <div className="stat-card-header">
-            <span className="stat-card-label">Customer Invoice Requests</span>
-            <div className="stat-card-icon-wrap" style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }}>
-              <Inbox size={20} />
+            <span className="stat-card-label">12% Output VAT Total</span>
+            <div
+              className="stat-card-icon-wrap"
+              style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}
+            >
+              <FileText size={20} />
             </div>
           </div>
-          <div className="stat-card-value">₱2,785,500.00</div>
+          <div className="stat-card-value">
+            ₱{totalVatValue.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
           <div className="stat-card-footer">
-            <span className="badge badge-amber">{invoiceRequests.length} Awaiting Generation</span>
+            <span className="badge badge-emerald">12% VAT Included</span>
           </div>
         </div>
 
         <div className="stat-card">
           <div className="stat-card-header">
-            <span className="stat-card-label">Collected Payments</span>
-            <div className="stat-card-icon-wrap" style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
-              <CheckCircle2 size={20} />
+            <span className="stat-card-label">Reprinted E-Invoices</span>
+            <div
+              className="stat-card-icon-wrap"
+              style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }}
+            >
+              <RefreshCw size={20} />
             </div>
           </div>
-          <div className="stat-card-value">₱851,500.00</div>
+          <div className="stat-card-value">{reprintedCount}</div>
           <div className="stat-card-footer">
-            <span className="trend-pill trend-positive">68% collected</span>
+            <span className="trend-description">Audited reprint logs</span>
           </div>
         </div>
       </div>
 
-      {/* Core View Switcher (Sent Tracker vs Request List) */}
-      <div
-        style={{
-          display: 'flex',
-          gap: '12px',
-          paddingBottom: '16px',
-          borderBottom: '2px solid var(--border-light)',
-          marginBottom: '20px'
-        }}
-      >
-        <button
-          onClick={() => { setActiveTab('sent'); setSearchQuery(''); }}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '10px 18px',
-            borderRadius: 'var(--radius-md)',
-            fontWeight: 700,
-            fontSize: '0.95rem',
-            background: activeTab === 'sent' ? 'var(--primary)' : 'var(--bg-surface)',
-            color: activeTab === 'sent' ? '#ffffff' : 'var(--text-main)',
-            border: activeTab === 'sent' ? '1px solid var(--primary)' : '1px solid var(--border-light)',
-            boxShadow: activeTab === 'sent' ? '0 4px 12px var(--primary-glow)' : 'none',
-            cursor: 'pointer',
-            transition: 'all var(--transition-fast)'
+      <div className="orders-toolbar no-print">
+        <div className="filter-tabs" style={{ margin: 0 }}>
+          {FILTER_TABS.map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              className={`filter-tab ${activeFilter === tab ? 'active' : ''}`}
+              onClick={() => {
+                setActiveFilter(tab);
+                setCurrentPage(1);
+              }}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        <form
+          className="orders-search-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setCurrentPage(1);
+            loadPrintedInvoices(searchQuery);
           }}
         >
-          <Send size={18} />
-          <span>Sent Invoices Tracker</span>
-          <span
-            style={{
-              padding: '2px 8px',
-              borderRadius: 'var(--radius-full)',
-              fontSize: '0.75rem',
-              backgroundColor: activeTab === 'sent' ? 'rgba(255,255,255,0.25)' : 'var(--border-light)',
-              color: activeTab === 'sent' ? '#ffffff' : 'var(--text-main)'
-            }}
-          >
-            {sentInvoices.length}
-          </span>
-        </button>
-
-        <button
-          onClick={() => { setActiveTab('requests'); setSearchQuery(''); }}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '10px 18px',
-            borderRadius: 'var(--radius-md)',
-            fontWeight: 700,
-            fontSize: '0.95rem',
-            background: activeTab === 'requests' ? 'var(--primary)' : 'var(--bg-surface)',
-            color: activeTab === 'requests' ? '#ffffff' : 'var(--text-main)',
-            border: activeTab === 'requests' ? '1px solid var(--primary)' : '1px solid var(--border-light)',
-            boxShadow: activeTab === 'requests' ? '0 4px 12px var(--primary-glow)' : 'none',
-            cursor: 'pointer',
-            transition: 'all var(--transition-fast)'
-          }}
-        >
-          <Inbox size={18} />
-          <span>Customer Request Invoices List</span>
-          <span
-            style={{
-              padding: '2px 8px',
-              borderRadius: 'var(--radius-full)',
-              fontSize: '0.75rem',
-              backgroundColor: activeTab === 'requests' ? 'rgba(255,255,255,0.25)' : 'rgba(245, 158, 11, 0.2)',
-              color: activeTab === 'requests' ? '#ffffff' : 'var(--accent-amber)',
-              fontWeight: 800
-            }}
-          >
-            {invoiceRequests.length}
-          </span>
-        </button>
+          <div className="orders-search-input-wrap">
+            <Search size={15} className="orders-search-icon" />
+            <input
+              type="text"
+              className="search-input"
+              style={{ paddingLeft: '34px', width: '100%' }}
+              placeholder="Search invoice #, order ID, waybill..."
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
+            />
+          </div>
+          <button type="submit" className="btn btn-primary" disabled={loading}>
+            Search
+          </button>
+        </form>
       </div>
 
-      {/* Search and Filters Bar */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '12px',
-          marginBottom: '16px'
-        }}
-      >
-        {activeTab === 'sent' ? (
-          <div className="filter-tabs" style={{ margin: 0 }}>
-            {['All', 'Paid', 'Unpaid', 'Overdue'].map((tab) => (
-              <button
-                key={tab}
-                className={`filter-tab ${sentFilter === tab ? 'active' : ''}`}
-                onClick={() => setSentFilter(tab)}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className="filter-tabs" style={{ margin: 0 }}>
-            {['All', 'Pending Generation', 'In Review'].map((tab) => (
-              <button
-                key={tab}
-                className={`filter-tab ${requestFilter === tab ? 'active' : ''}`}
-                onClick={() => setRequestFilter(tab)}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div style={{ position: 'relative', width: '280px' }}>
-          <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-subtle)' }} />
-          <input
-            type="text"
-            className="search-input"
-            style={{ paddingLeft: '34px', width: '100%' }}
-            placeholder={activeTab === 'sent' ? "Search invoice #, customer..." : "Search request #, customer, PO..."}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-      </div>
-
-      {/* VIEW 1: SENT INVOICES TRACKER */}
-      {activeTab === 'sent' && (
-        <div className="card-section">
-          <div className="card-section-header">
-            <div>
-              <h2 className="card-section-title">Sent E-Invoices Tracker</h2>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                Audited list of customers already issued with digital invoices, clearance codes, and delivery status.
-              </div>
+      <div className="card-section no-print">
+        <div className="card-section-header">
+          <div>
+            <h2 className="card-section-title">Printed E-Invoices Tracker</h2>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              All E-Invoices printed after waybill scan. Use Print Again if a thermal print was damaged or jammed, or download a Soft Copy.
             </div>
-            <span className="badge badge-emerald">BIR Compliant (EIS Ready)</span>
           </div>
+          <span className="badge badge-emerald">100×150mm Waybill Ready</span>
+        </div>
 
-          <div className="table-responsive">
-            <table className="data-table">
-              <thead>
+        <div className="table-responsive">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Invoice No.</th>
+                <th>Platform & Store</th>
+                <th>Order ID / Waybill</th>
+                <th>Buyer & Product Ordered</th>
+                <th>Date Printed</th>
+                <th>Discount & 12% VAT</th>
+                <th>Amount (PHP)</th>
+                <th>Print Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
                 <tr>
-                  <th>Invoice No.</th>
-                  <th>Customer & TIN</th>
-                  <th>BIR Clearance</th>
-                  <th>Date Sent</th>
-                  <th>Due Date</th>
-                  <th>Amount (PHP)</th>
-                  <th>Delivery Status</th>
-                  <th>Payment</th>
-                  <th>Actions</th>
+                  <td colSpan="9" style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+                    Loading printed E-Invoices...
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {filteredSent.length === 0 ? (
-                  <tr>
-                    <td colSpan="9" style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
-                      No sent invoices found matching your criteria.
+              ) : paginatedInvoices.length === 0 ? (
+                <tr>
+                  <td colSpan="9" style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
+                    No printed E-Invoices found. Scan and print a waybill in Packing Scan Station to see it here.
+                  </td>
+                </tr>
+              ) : (
+                paginatedInvoices.map((inv, idx) => (
+                  <tr key={inv.id || inv.documentNumber || idx}>
+                    <td>
+                      <strong style={{ fontFamily: 'monospace', color: 'var(--primary)' }}>
+                        {inv.documentNumber}
+                      </strong>
+                      {inv.id && (
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                          Doc #{inv.id}
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      <span className={`badge ${getPlatformBadge(inv.platform)}`}>
+                        {inv.platform || 'Marketplace'}
+                      </span>
+                      <div style={{ fontSize: '0.76rem', marginTop: '4px', fontWeight: 600 }}>
+                        {inv.storeName || 'Official Store'}
+                      </div>
+                    </td>
+                    <td>
+                      <div style={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                        {inv.orderId || '—'}
+                      </div>
+                      <div style={{ fontFamily: 'monospace', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                        WB: {inv.tracking || '—'}
+                      </div>
+                    </td>
+                    <td style={{ maxWidth: '230px' }}>
+                      <strong>{inv.buyerName || 'Marketplace Buyer'}</strong>
+                      <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        {inv.productSummary && inv.productSummary !== '—'
+                          ? inv.productSummary
+                          : inv.lines?.length > 0
+                            ? inv.lines.map((l) => `${l.productName} (x${l.qty})`).join(', ')
+                            : `${inv.platform || 'Marketplace'} Order Item`}
+                      </div>
+                    </td>
+                    <td style={{ fontSize: '0.8rem' }}>
+                      <div>{inv.lastPrintedAt || inv.issuedAt || '—'}</div>
+                      {inv.lastStationCode && inv.lastStationCode !== '—' && (
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                          Station: {inv.lastStationCode}
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ fontSize: '0.78rem' }}>
+                      <div>
+                        Disc: <strong>-₱{inv.discountAmount || '0.00'}</strong>
+                      </div>
+                      <div style={{ color: 'var(--accent-emerald)' }}>
+                        VAT: <strong>₱{inv.vatAmount || '0.00'}</strong>
+                      </div>
+                    </td>
+                    <td style={{ fontWeight: 800, fontSize: '0.925rem' }}>
+                      ₱{inv.totalAmount || '0.00'}
+                    </td>
+                    <td>
+                      <span
+                        className={`badge ${
+                          inv.isReprint || (inv.printCount || 1) > 1
+                            ? 'badge-amber'
+                            : 'badge-emerald'
+                        }`}
+                      >
+                        {inv.isReprint || (inv.printCount || 1) > 1 ? 'REPRINTED' : 'ORIGINAL'}
+                      </span>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '3px' }}>
+                        {inv.printCount || 1}x Printed
+                      </div>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          style={{ padding: '5px 10px', fontSize: '0.74rem' }}
+                          onClick={() => openReprintModal(inv)}
+                          title="Print E-Invoice Waybill Again"
+                        >
+                          <Printer size={13} /> Print Again
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-outline"
+                          style={{ padding: '5px 10px', fontSize: '0.74rem' }}
+                          onClick={() => handleDownloadSoftCopy(inv)}
+                          title="Download Waybill Soft Copy (PNG)"
+                        >
+                          <Download size={13} /> Soft Copy
+                        </button>
+                      </div>
                     </td>
                   </tr>
-                ) : (
-                  filteredSent.map((inv) => (
-                    <tr key={inv.id}>
-                      <td style={{ fontWeight: 700, color: 'var(--primary)' }}>
-                        {inv.id}
-                      </td>
-                      <td>
-                        <strong>{inv.customer}</strong>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                          TIN: {inv.tin}
-                        </div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>
-                          {inv.recipientEmail}
-                        </div>
-                      </td>
-                      <td>
-                        <span style={{ fontFamily: 'monospace', fontSize: '0.78rem', background: 'var(--bg-app)', padding: '2px 6px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)' }}>
-                          {inv.birClearance}
-                        </span>
-                      </td>
-                      <td>{inv.dateSent}</td>
-                      <td>{inv.dueDate}</td>
-                      <td style={{ fontWeight: 700, fontSize: '0.925rem' }}>
-                        {inv.amount}
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem' }}>
-                          <CheckCircle2 size={13} style={{ color: 'var(--accent-emerald)' }} />
-                          <span>{inv.deliveryStatus}</span>
-                        </div>
-                      </td>
-                      <td>
-                        <span className={`badge ${inv.paymentBadge}`}>
-                          {inv.paymentStatus}
-                        </span>
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          <button
-                            className="btn btn-outline"
-                            style={{ padding: '4px 8px', fontSize: '0.725rem' }}
-                            onClick={() => handleResendInvoice(inv)}
-                            title="Resend to customer email"
-                          >
-                            Resend
-                          </button>
-                          <button
-                            className="btn btn-outline"
-                            style={{ padding: '4px 8px', fontSize: '0.725rem' }}
-                            onClick={() => alert(`Downloading PDF copy for ${inv.id}...`)}
-                            title="Download PDF"
-                          >
-                            <Download size={12} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="modal-pagination-bar">
+          <span className="page-subtitle">
+            {filteredInvoices.length === 0
+              ? 'Showing 0 of 0 E-Invoices (10 per page)'
+              : `Showing ${startIdx + 1}–${Math.min(startIdx + ITEMS_PER_PAGE, filteredInvoices.length)} of ${filteredInvoices.length} E-Invoices`}
+          </span>
+
+          <div className="modal-pagination-controls">
+            <button
+              type="button"
+              className="btn btn-outline pagination-btn"
+              disabled={safePage <= 1}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            >
+              Previous
+            </button>
+
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
+              <button
+                key={pageNum}
+                type="button"
+                className={`btn pagination-btn ${
+                  pageNum === safePage ? 'btn-primary' : 'btn-outline'
+                }`}
+                onClick={() => setCurrentPage(pageNum)}
+              >
+                {pageNum}
+              </button>
+            ))}
+
+            <button
+              type="button"
+              className="btn btn-outline pagination-btn"
+              disabled={safePage >= totalPages}
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Reprint & Preview Modal */}
+      {reprintModalDoc && (
+        <div
+          className="scan-modal-backdrop no-print"
+          onClick={() => !reprintLoading && setReprintModalDoc(null)}
+        >
+          <div
+            className="doc-modal-card"
+            style={{ maxWidth: '820px' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="doc-modal-header">
+              <div>
+                <h2 className="card-section-title" style={{ fontSize: '1.15rem' }}>
+                  <Printer size={17} style={{ verticalAlign: 'middle', marginRight: '6px' }} />
+                  Reprint E-Invoice Waybill ({reprintModalDoc.documentNumber})
+                </h2>
+                <p className="page-subtitle">
+                  Preview the 100×150mm waybill layout and select a reason before reprinting or downloading a soft copy.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="scan-modal-close"
+                style={{ position: 'static' }}
+                onClick={() => setReprintModalDoc(null)}
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="cards-grid-2" style={{ alignItems: 'start', marginBottom: 0 }}>
+              <div>
+                <WaybillTicket
+                  platform={reprintModalDoc.platform || 'Marketplace'}
+                  storeName={reprintModalDoc.storeName || 'Official Store'}
+                  copyTag="REPRINT"
+                  invoiceNumber={reprintModalDoc.documentNumber}
+                  issuedAt={reprintModalDoc.issuedAt || reprintModalDoc.lastPrintedAt || ''}
+                  orderId={reprintModalDoc.orderId || '—'}
+                  buyerName={reprintModalDoc.buyerName || 'Marketplace Buyer'}
+                  buyerTin={reprintModalDoc.buyerTin || '—'}
+                  orderStatus={reprintModalDoc.status || 'PAID'}
+                  lines={getDisplayLines(reprintModalDoc)}
+                  discountAmount={reprintModalDoc.discountAmount || '0.00'}
+                  vatableSales={reprintModalDoc.vatableSales || '0.00'}
+                  vatAmount={reprintModalDoc.vatAmount || '0.00'}
+                  vatExemptSales={reprintModalDoc.vatExemptSales || '0.00'}
+                  zeroRatedSales={reprintModalDoc.zeroRatedSales || '0.00'}
+                  totalAmount={reprintModalDoc.totalAmount || '0.00'}
+                />
+              </div>
+
+              <div className="card-section" style={{ marginBottom: 0 }}>
+                <h3 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '12px' }}>
+                  Reprint Options
+                </h3>
+
+                <div style={{ marginBottom: '14px' }}>
+                  <label
+                    style={{
+                      display: 'block',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      color: 'var(--text-muted)',
+                      marginBottom: '6px'
+                    }}
+                  >
+                    Reason for Reprinting *
+                  </label>
+                  <select
+                    value={selectedReason}
+                    onChange={(e) => setSelectedReason(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border-light)',
+                      background: 'var(--bg-app)',
+                      color: 'var(--text-main)',
+                      fontWeight: 600
+                    }}
+                  >
+                    {reprintReasons.map((r) => (
+                      <option key={r.code} value={r.code}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ marginBottom: '18px' }}>
+                  <label
+                    style={{
+                      display: 'block',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      color: 'var(--text-muted)',
+                      marginBottom: '6px'
+                    }}
+                  >
+                    Additional Note (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Thermal paper jammed during scan..."
+                    value={reprintNote}
+                    onChange={(e) => setReprintNote(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border-light)',
+                      background: 'var(--bg-app)',
+                      color: 'var(--text-main)'
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ width: '100%', justifyContent: 'center', padding: '10px 16px' }}
+                    disabled={reprintLoading}
+                    onClick={handleConfirmReprint}
+                  >
+                    <Printer size={16} />
+                    {reprintLoading ? 'Preparing Printout...' : 'Print E-Invoice Now'}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    style={{ width: '100%', justifyContent: 'center', padding: '10px 16px' }}
+                    onClick={() => handleDownloadSoftCopy(reprintModalDoc)}
+                  >
+                    <Download size={16} /> Download Soft Copy (PNG)
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      {/* VIEW 2: CUSTOMER REQUEST INVOICES LIST */}
-      {activeTab === 'requests' && (
-        <div className="card-section">
-          <div className="card-section-header">
-            <div>
-              <h2 className="card-section-title">Customer Invoice Requests Queue</h2>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                Incoming e-invoice requests submitted by customers against verified purchase orders.
-              </div>
-            </div>
-            <span className="badge badge-amber">{invoiceRequests.length} Pending Fulfillments</span>
-          </div>
-
-          <div className="table-responsive">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Request ID</th>
-                  <th>Customer / Company</th>
-                  <th>PO Reference</th>
-                  <th>Request Date</th>
-                  <th>Billing Contact</th>
-                  <th>Amount (PHP)</th>
-                  <th>Priority</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredRequests.length === 0 ? (
-                  <tr>
-                    <td colSpan="8" style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
-                      No pending invoice requests at this moment. All requests have been fulfilled!
-                    </td>
-                  </tr>
-                ) : (
-                  filteredRequests.map((req) => (
-                    <tr key={req.requestId}>
-                      <td style={{ fontWeight: 700 }}>{req.requestId}</td>
-                      <td>
-                        <strong>{req.customer}</strong>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                          TIN: {req.tin}
-                        </div>
-                      </td>
-                      <td>
-                        <span style={{ fontWeight: 600, color: 'var(--text-main)', background: 'var(--bg-app)', padding: '2px 6px', borderRadius: 'var(--radius-sm)' }}>
-                          {req.poReference}
-                        </span>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                          {req.itemsCount} order items
-                        </div>
-                      </td>
-                      <td>{req.requestDate}</td>
-                      <td style={{ fontSize: '0.8rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <Mail size={13} style={{ color: 'var(--text-subtle)' }} />
-                          <span>{req.contactEmail}</span>
-                        </div>
-                      </td>
-                      <td style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--text-main)' }}>
-                        {req.amount}
-                      </td>
-                      <td>
-                        <span className={`badge ${req.priority === 'Urgent' ? 'badge-rose' : 'badge-primary'}`}>
-                          {req.priority}
-                        </span>
-                      </td>
-                      <td>
-                        <button
-                          className="btn btn-primary"
-                          style={{ padding: '6px 12px', fontSize: '0.75rem', whiteSpace: 'nowrap' }}
-                          onClick={() => handleGenerateAndSend(req)}
-                        >
-                          <Send size={13} /> Generate & Send Invoice
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+      {/* Hidden 100x150mm Thermal Waybill Slip for window.print() */}
+      {printableDoc && (
+        <div id="bir-printable-invoice-slip" className="print-only-slip">
+          <WaybillTicket
+            platform={printableDoc.platform || 'Marketplace'}
+            storeName={printableDoc.storeName || 'Official Store'}
+            copyTag={printableDoc.isReprint ? 'REPRINT' : 'ORIGINAL'}
+            invoiceNumber={printableDoc.documentNumber}
+            issuedAt={printableDoc.issuedAt || printableDoc.lastPrintedAt || ''}
+            orderId={printableDoc.orderId || '—'}
+            buyerName={printableDoc.buyerName || 'Marketplace Buyer'}
+            buyerTin={printableDoc.buyerTin || '—'}
+            orderStatus={printableDoc.status || 'PAID'}
+            lines={getDisplayLines(printableDoc)}
+            discountAmount={printableDoc.discountAmount || '0.00'}
+            vatableSales={printableDoc.vatableSales || '0.00'}
+            vatAmount={printableDoc.vatAmount || '0.00'}
+            vatExemptSales={printableDoc.vatExemptSales || '0.00'}
+            zeroRatedSales={printableDoc.zeroRatedSales || '0.00'}
+            totalAmount={printableDoc.totalAmount || '0.00'}
+          />
         </div>
       )}
     </div>

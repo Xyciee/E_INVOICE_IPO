@@ -414,3 +414,550 @@
   flex-shrink: 0;
 }
 
+/* --------------------------------------------------------------------------
+   Packing Scan Station, Modals & Waybill Styles
+   -------------------------------------------------------------------------- */
+.station-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  background: var(--bg-surface);
+  font-size: 0.82rem;
+}
+
+.station-select {
+  border: none;
+  background: transparent;
+  color: var(--text-main);
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+  outline: none;
+}
+
+.scan-mode-switch {
+  display: flex;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  gap: 4px;
+}
+
+.scan-mode-btn {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.scan-mode-btn.active {
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.scan-trigger-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.scan-trigger-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.scan-trigger-icon {
+  width: 54px;
+  height: 54px;
+  border-radius: var(--radius-lg);
+  background: var(--primary-light);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.scan-btn-lg {
+  padding: 12px 24px;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.scan-alert-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.scan-alert-amber {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.scan-alert-red {
+  background: rgba(244, 63, 94, 0.1);
+  border-color: rgba(244, 63, 94, 0.4);
+}
+
+.order-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  padding: 14px;
+  border-radius: var(--radius-md);
+  background: var(--bg-app);
+  border: 1px solid var(--border-light);
+}
+
+.order-field-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.order-field-val {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-top: 2px;
+}
+
+.invoice-status-box {
+  padding: 16px;
+  border-radius: var(--radius-md);
+  background: var(--bg-app);
+  border: 1px solid var(--border-light);
+  margin-bottom: 14px;
+}
+
+.invoice-status-box.issued-now {
+  background: rgba(59, 130, 246, 0.06);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.invoice-number-display {
+  font-size: 1.25rem;
+  font-weight: 800;
+  font-family: monospace;
+  margin-top: 8px;
+}
+
+/* Modal Backdrop & Cards */
+.scan-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.scan-modal-card {
+  width: 100%;
+  max-width: 440px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 32px 28px;
+  text-align: center;
+  position: relative;
+}
+
+.scan-modal-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-app);
+  border: 1px solid var(--border-light);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.scan-pulse-box {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  margin: 0 auto 18px;
+  background: var(--primary-light);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 8px rgba(59, 130, 246, 0.08);
+  transition: all 0.2s ease;
+}
+
+.scan-pulse-box.active {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--accent-emerald);
+  box-shadow: 0 0 0 12px rgba(16, 185, 129, 0.12);
+  transform: scale(1.05);
+}
+
+.doc-modal-card {
+  width: 100%;
+  max-width: 760px;
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 24px;
+  position: relative;
+}
+
+.doc-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.doc-section-block {
+  margin-top: 18px;
+}
+
+.doc-section-heading {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.doc-lineage-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.orders-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.orders-search-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  max-width: 440px;
+}
+
+.orders-search-input-wrap {
+  position: relative;
+  flex: 1;
+}
+
+.orders-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-subtle);
+}
+
+.modal-pagination-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 14px;
+  margin-top: 14px;
+  border-top: 1px solid var(--border-light);
+}
+
+.modal-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pagination-btn {
+  padding: 5px 11px;
+  font-size: 0.78rem;
+  min-width: 34px;
+  justify-content: center;
+}
+
+.pagination-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------------------
+   100mm x 150mm Thermal Waybill Design
+   -------------------------------------------------------------------------- */
+.print-only-slip {
+  display: none;
+}
+
+.waybill-sheet {
+  width: 100%;
+  max-width: 390px;
+  margin: 0 auto;
+  background: #ffffff;
+  color: #0f172a;
+  border: 2px solid #0f172a;
+  border-radius: 4px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.waybill-top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 2px solid #0f172a;
+  background: #0f172a;
+  color: #ffffff;
+}
+
+.waybill-channel-tag {
+  font-size: 0.85rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  background: #ffffff;
+  color: #0f172a;
+  border-radius: 3px;
+}
+
+.waybill-copy-tag {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border: 1px solid #ffffff;
+  padding: 2px 6px;
+  border-radius: 2px;
+}
+
+.waybill-seller-box {
+  padding: 7px 10px;
+  border-bottom: 1.5px solid #0f172a;
+  text-align: center;
+  background: #f8fafc;
+}
+
+.waybill-seller-name {
+  font-weight: 900;
+  font-size: 0.84rem;
+  letter-spacing: 0.02em;
+}
+
+.waybill-seller-addr {
+  font-size: 0.66rem;
+  color: #334155;
+  margin-top: 2px;
+}
+
+.waybill-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1.5px solid #0f172a;
+}
+
+.waybill-meta-cell {
+  padding: 6px 9px;
+  border-right: 1px solid #0f172a;
+  border-bottom: 1px solid #0f172a;
+}
+
+.waybill-meta-cell:nth-child(2n) {
+  border-right: none;
+}
+
+.waybill-meta-cell.full-row {
+  grid-column: 1 / -1;
+  border-right: none;
+}
+
+.waybill-cell-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #475569;
+  letter-spacing: 0.04em;
+}
+
+.waybill-cell-val {
+  font-size: 0.76rem;
+  font-weight: 800;
+  color: #0f172a;
+  word-break: break-all;
+}
+
+.waybill-items-box {
+  padding: 8px 10px;
+  border-bottom: 1.5px solid #0f172a;
+}
+
+.waybill-section-tag {
+  font-size: 0.64rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #334155;
+  margin-bottom: 4px;
+}
+
+.waybill-items-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+}
+
+.waybill-items-table th {
+  border-bottom: 1.5px solid #0f172a;
+  text-align: left;
+  padding: 3px 2px;
+  font-size: 0.64rem;
+  text-transform: uppercase;
+}
+
+.waybill-items-table td {
+  padding: 4px 2px;
+  border-bottom: 1px dashed #cbd5e1;
+  vertical-align: top;
+}
+
+.waybill-tax-box {
+  padding: 6px 10px;
+  border-bottom: 2px solid #0f172a;
+  font-size: 0.7rem;
+  background: #f8fafc;
+}
+
+.waybill-tax-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 1.5px 0;
+}
+
+.waybill-total-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  background: #0f172a;
+  color: #ffffff;
+  font-weight: 900;
+  font-size: 0.92rem;
+}
+
+@page {
+  size: 100mm 150mm;
+  margin: 0mm;
+}
+
+@media print {
+  @page {
+    size: 100mm 150mm;
+    margin: 0mm;
+  }
+  html,
+  body {
+    width: 100mm !important;
+    height: 150mm !important;
+    min-height: 0 !important;
+    max-height: 150mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    background: #ffffff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .sidebar,
+  .sidebar-overlay,
+  header,
+  footer,
+  .no-print {
+    display: none !important;
+  }
+  .admin-shell,
+  .admin-main-wrapper,
+  .admin-page-container {
+    display: block !important;
+    width: 100mm !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+  }
+  #bir-printable-invoice-slip {
+    display: block !important;
+    position: relative !important;
+    width: 100mm !important;
+    max-width: 100mm !important;
+    height: 148mm !important;
+    margin: 0 auto !important;
+    padding: 2mm !important;
+    box-sizing: border-box !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    page-break-after: avoid !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  #bir-printable-invoice-slip .waybill-sheet {
+    max-width: 100% !important;
+    width: 100% !important;
+    height: 100% !important;
+    box-shadow: none !important;
+    border: 2px solid #000000 !important;
+    border-radius: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+  }
+  #bir-printable-invoice-slip .waybill-total-bar {
+    background: #0f172a !important;
+    color: #ffffff !important;
+    border-top: 2px solid #000000 !important;
+    border-bottom: 2px solid #000000 !important;
+  }
+}
