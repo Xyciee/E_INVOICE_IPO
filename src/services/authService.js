@@ -12,18 +12,12 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 let cachedCsrfToken = null;
 
-/**
- * Extract CSRF token from document cookies if available
- */
 function getCsrfFromCookie() {
   if (typeof document === 'undefined') return null;
   const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-/**
- * Fetch and return the active CSRF token required for POST requests
- */
 export async function getCsrfToken(forceRefresh = false) {
   if (!forceRefresh && cachedCsrfToken) {
     return cachedCsrfToken;
@@ -53,9 +47,6 @@ export async function getCsrfToken(forceRefresh = false) {
   return getCsrfFromCookie() || '';
 }
 
-/**
- * Normalize backend user payload into standard app user structure
- */
 function formatUserProfile(profile, fallbackIdentifier) {
   const username = profile?.username || fallbackIdentifier || 'user';
   const roles = profile?.roles || (profile?.is_superuser ? ['Super Admin'] : ['Staff']);
@@ -63,6 +54,17 @@ function formatUserProfile(profile, fallbackIdentifier) {
     profile?.name ||
     profile?.first_name ||
     username.charAt(0).toUpperCase() + username.slice(1);
+
+  const stations =
+    profile?.stations ||
+    profile?.assigned_stations ||
+    profile?.assignedStations ||
+    [];
+
+  const reprintReasons =
+    profile?.reprint_reasons ||
+    profile?.reprintReasons ||
+    [];
 
   return {
     id: profile?.id || `user_${username}`,
@@ -74,19 +76,16 @@ function formatUserProfile(profile, fallbackIdentifier) {
     permissions: profile?.permissions || profile?.named_permissions || [],
     avatar: (displayName || username).slice(0, 2).toUpperCase(),
     department: profile?.department || 'Operations',
-    assignedStations: profile?.assigned_stations || profile?.assignedStations || []
+    stations,
+    assignedStations: stations,
+    reprintReasons
   };
 }
 
-/**
- * Perform login against Django backend /api/auth/login
- */
 export async function apiLogin(username, password) {
   try {
-    // 1. Ensure CSRF token is available
     const csrfToken = await getCsrfToken();
 
-    // 2. Submit credentials
     const response = await fetch(`${API_BASE}/api/auth/login`, {
       method: 'POST',
       headers: {
@@ -101,10 +100,8 @@ export async function apiLogin(username, password) {
     });
 
     if (response.ok) {
-      // Django rotates the CSRF token on login — drop the cached one
       cachedCsrfToken = null;
 
-      // 3. Confirm the session is real via /api/me — no session, no login
       const meRes = await fetch(`${API_BASE}/api/me`, {
         credentials: 'include'
       });
@@ -121,7 +118,6 @@ export async function apiLogin(username, password) {
       };
     }
 
-    // Handle authentication error responses
     let errorMessage = 'Invalid credentials. Please verify your username and password.';
     try {
       const errData = await response.json();
@@ -157,9 +153,6 @@ export async function apiLogin(username, password) {
   }
 }
 
-/**
- * Check active session with backend /api/me
- */
 export async function apiCheckSession() {
   try {
     const res = await fetch(`${API_BASE}/api/me`, {
@@ -178,9 +171,6 @@ export async function apiCheckSession() {
   }
 }
 
-/**
- * Logout from Django backend /api/auth/logout
- */
 export async function apiLogout() {
   try {
     const csrfToken = await getCsrfToken();

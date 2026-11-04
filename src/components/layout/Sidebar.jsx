@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   LayoutDashboard,
+  ScanLine,
   ShoppingCart,
   Receipt,
   BarChart3,
@@ -38,16 +39,22 @@ export default function Sidebar({
       group: 'Transactions & Billing',
       items: [
         {
+          id: 'packing-scan',
+          label: 'Packing Scan',
+          icon: ScanLine,
+          badge: 'Live'
+        },
+        {
           id: 'orders',
           label: 'Orders',
           icon: ShoppingCart,
-          badge: '8 New'
+          badge: null
         },
         {
           id: 'invoices',
           label: 'Invoices Tracker',
           icon: Receipt,
-          badge: '14'
+          badge: null
         }
       ]
     },
@@ -83,7 +90,6 @@ export default function Sidebar({
         isMobileOpen ? 'mobile-open' : ''
       }`}
     >
-      {/* Brand Header */}
       <div className="sidebar-header">
         <a
           href="#dashboard"
@@ -105,7 +111,6 @@ export default function Sidebar({
           )}
         </a>
 
-        {/* Mobile Close Button (shown only on mobile screens) */}
         <button
           className="sidebar-mobile-close-btn"
           onClick={onCloseMobile}
@@ -115,7 +120,6 @@ export default function Sidebar({
         </button>
       </div>
 
-      {/* Navigation Groups */}
       <nav className="sidebar-nav">
         {navGroups.map((group) => (
           <div key={group.group} className="nav-group-wrapper">
@@ -156,9 +160,7 @@ export default function Sidebar({
         ))}
       </nav>
 
-      {/* Footer Controls & User Profile */}
       <div className="sidebar-footer">
-        {/* Collapse / Expand Toggle Button */}
         <button
           className="sidebar-toggle-action-btn"
           onClick={onToggleCollapse}
@@ -170,7 +172,6 @@ export default function Sidebar({
           {!isCollapsed && <span className="toggle-btn-label">Collapse Sidebar</span>}
         </button>
 
-        {/* User Profile Card with Logout */}
         <div className="sidebar-user-card">
           <div className="sidebar-user-left">
             <div
