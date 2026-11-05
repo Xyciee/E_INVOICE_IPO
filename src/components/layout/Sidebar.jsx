@@ -5,7 +5,6 @@ import {
   ShoppingCart,
   Receipt,
   FileMinus,
-  BarChart3,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -116,7 +115,18 @@ export default function Sidebar({
       className={`admin-sidebar ${isCollapsed ? 'collapsed' : ''} ${isMobileOpen ? 'mobile-open' : ''
         }`}
     >
-      <div className="sidebar-header">
+      {/* Right-Middle Sidebar Collapse/Expand Toggle Button */}
+      <button
+        type="button"
+        className="sidebar-collapse-btn"
+        onClick={onToggleCollapse}
+        title={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+        aria-label={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+      >
+        {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+      </button>
+
+      <div className="sidebar-header" style={{ justifyContent: 'center' }}>
         <a
           href="#dashboard"
           onClick={(e) => {
@@ -124,15 +134,18 @@ export default function Sidebar({
             handleNavClick('dashboard');
           }}
           className="brand-link"
+          style={{ justifyContent: 'center', width: '100%' }}
           title="ISC E-Invoice System"
         >
-          <div className="brand-icon">
-            <Receipt size={20} />
-          </div>
-          {!isCollapsed && (
-            <div className="brand-info">
-              <span className="brand-name">ISC E-Invoice</span>
-              <span className="brand-tagline">Admin System</span>
+          {isCollapsed ? (
+            <span className="brand-name" style={{ fontSize: '1.35rem', fontWeight: 800 }}>
+              E
+            </span>
+          ) : (
+            <div className="brand-info" style={{ alignItems: 'center', textAlign: 'center', width: '100%' }}>
+              <span className="brand-name" style={{ fontSize: '1.25rem', fontWeight: 800 }}>
+                ISC E-Invoice
+              </span>
             </div>
           )}
         </a>

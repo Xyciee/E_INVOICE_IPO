@@ -11,6 +11,8 @@ import {
   CheckCircle2,
   Copy,
   Check,
+  Eye,
+  ChevronDown,
   X
 } from 'lucide-react';
 import {
@@ -21,6 +23,7 @@ import {
   logInvoicePrint,
   normalizeDocumentRecord,
   savePrintedInvoiceRecord,
+  downloadWaybillSoftCopy,
   getExportDownloadUrl
 } from '../services/scanService';
 import WaybillTicket from '../components/WaybillTicket';
@@ -71,6 +74,7 @@ export default function OrdersPage() {
   const [actionToast, setActionToast] = useState('');
   const [copiedTracking, setCopiedTracking] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -281,6 +285,16 @@ export default function OrdersPage() {
     }, 150);
   };
 
+  const handleDownloadSoftCopy = async (ord) => {
+    if (!ord) return;
+    const hydrated = await hydrateOrderDetails(ord);
+    const targetDoc = hydrated || ord;
+    downloadWaybillSoftCopy(targetDoc);
+    showToast(
+      `Waybill soft copy downloaded (${targetDoc.documentNumber !== '—' ? targetDoc.documentNumber : targetDoc.orderId}-WAYBILL.png)`
+    );
+  };
+
   const handleCopyWaybill = (wb) => {
     if (!wb || wb === '—') return;
     navigator.clipboard?.writeText(wb);
@@ -366,37 +380,84 @@ export default function OrdersPage() {
     <div>
       <div className="page-header no-print">
         <div>
-          <h1 className="page-title">Daily Orders Queue (Unprinted)</h1>
-          <p className="page-subtitle">
-            Live marketplace orders from TikTok, Shopee, and Lazada waiting to be scanned & printed. Once scanned and printed, the order automatically moves to the Invoices Tracker.
-          </p>
+          <h1 className="page-title">Daily Orders Queue</h1>
         </div>
         <div className="page-actions">
-          <a
-            href={getExportDownloadUrl('/api/documents', { printed: 0 }, 'csv')}
-            target="_blank"
-            rel="noreferrer"
-            className="btn btn-outline"
-            style={{ textDecoration: 'none' }}
-          >
-            <Download size={15} /> CSV Export
-          </a>
-          <a
-            href={getExportDownloadUrl('/api/documents', { printed: 0 }, 'xlsx')}
-            target="_blank"
-            rel="noreferrer"
-            className="btn btn-outline"
-            style={{ textDecoration: 'none' }}
-          >
-            <Download size={15} /> Excel Export
-          </a>
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={() => setShowExportMenu((prev) => !prev)}
+            >
+              <Download size={15} /> Export <ChevronDown size={14} />
+            </button>
+
+            {showExportMenu && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  right: 0,
+                  minWidth: '170px',
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-light)',
+                  borderRadius: 'var(--radius-md)',
+                  boxShadow: 'var(--shadow-lg)',
+                  padding: '6px',
+                  zIndex: 50,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '2px'
+                }}
+              >
+                <a
+                  href={getExportDownloadUrl('/api/documents', { printed: 0 }, 'csv')}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => setShowExportMenu(false)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    color: 'var(--text-main)',
+                    textDecoration: 'none'
+                  }}
+                >
+                  <FileText size={14} color="var(--primary)" /> CSV Export (.csv)
+                </a>
+                <a
+                  href={getExportDownloadUrl('/api/documents', { printed: 0 }, 'xlsx')}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => setShowExportMenu(false)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    color: 'var(--text-main)',
+                    textDecoration: 'none'
+                  }}
+                >
+                  <Download size={14} color="var(--accent-emerald)" /> Excel Export (.xlsx)
+                </a>
+              </div>
+            )}
+          </div>
           <button
             type="button"
             className="btn btn-outline"
             onClick={() => loadUnprintedOrders(queryInput)}
             disabled={loading}
           >
-            <RefreshCw size={15} /> Refresh Orders
+            <RefreshCw size={15} /> Refresh
           </button>
         </div>
       </div>
@@ -471,57 +532,6 @@ export default function OrdersPage() {
         </div>
       </div>
 
-      <div className="orders-toolbar no-print">
-        <div className="filter-tabs" style={{ margin: 0 }}>
-          {FILTER_TABS.map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              className={`filter-tab ${activeFilter === tab ? 'active' : ''}`}
-              onClick={() => {
-                setActiveFilter(tab);
-                setCurrentPage(1);
-              }}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
-
-        <form className="orders-search-form" onSubmit={handleSearchSubmit}>
-          <div className="orders-search-input-wrap">
-            <Search size={15} className="orders-search-icon" />
-            <input
-              type="text"
-              className="search-input"
-              style={{ paddingLeft: '34px', width: '100%' }}
-              placeholder="Search Order ID, waybill tracking, buyer..."
-              value={queryInput}
-              onChange={(e) => {
-                setQueryInput(e.target.value);
-                setCurrentPage(1);
-              }}
-            />
-          </div>
-          <button type="submit" className="btn btn-primary" disabled={loading}>
-            Search
-          </button>
-          {queryInput && (
-            <button
-              type="button"
-              className="btn btn-outline"
-              onClick={() => {
-                setQueryInput('');
-                setCurrentPage(1);
-                loadUnprintedOrders('');
-              }}
-            >
-              Clear
-            </button>
-          )}
-        </form>
-      </div>
-
       {errorMsg && (
         <div className="card-section scan-alert-card scan-alert-red no-print">
           <div>{errorMsg}</div>
@@ -529,14 +539,75 @@ export default function OrdersPage() {
       )}
 
       <div className="card-section no-print">
-        <div className="card-section-header">
-          <div>
+        <div className="card-section-header" style={{ flexWrap: 'wrap', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <h2 className="card-section-title">
               <Calendar size={16} style={{ verticalAlign: 'middle', marginRight: '6px' }} />
               Active Unprinted Orders List
             </h2>
+            <span className="badge badge-primary">Live API Sync</span>
           </div>
-          <span className="badge badge-primary">Live API Sync</span>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', flex: 1, justifyContent: 'flex-end' }}>
+            <select
+              value={activeFilter}
+              onChange={(e) => {
+                setActiveFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              style={{
+                height: '38px',
+                padding: '0 12px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-light)',
+                backgroundColor: 'var(--bg-app)',
+                color: 'var(--text-main)',
+                fontWeight: 600,
+                fontSize: '0.85rem',
+                cursor: 'pointer'
+              }}
+              aria-label="Filter Orders"
+            >
+              {FILTER_TABS.map((tab) => (
+                <option key={tab} value={tab}>
+                  {tab}
+                </option>
+              ))}
+            </select>
+
+            <form className="orders-search-form" onSubmit={handleSearchSubmit}>
+              <div className="orders-search-input-wrap">
+                <Search size={15} className="orders-search-icon" />
+                <input
+                  type="text"
+                  className="search-input"
+                  style={{ paddingLeft: '34px', width: '100%' }}
+                  placeholder="Search Order ID, waybill tracking, buyer..."
+                  value={queryInput}
+                  onChange={(e) => {
+                    setQueryInput(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                />
+              </div>
+              <button type="submit" className="btn btn-primary" disabled={loading}>
+                Search
+              </button>
+              {queryInput && (
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={() => {
+                    setQueryInput('');
+                    setCurrentPage(1);
+                    loadUnprintedOrders('');
+                  }}
+                >
+                  Clear
+                </button>
+              )}
+            </form>
+          </div>
         </div>
 
         <div className="table-responsive">
@@ -558,7 +629,10 @@ export default function OrdersPage() {
               {loading ? (
                 <tr>
                   <td colSpan="9" style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
-                    Loading live marketplace orders from server...
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+                      <RefreshCw size={16} className="spinner" />
+                      <span>Please wait... </span>
+                    </div>
                   </td>
                 </tr>
               ) : paginatedOrders.length === 0 ? (
@@ -674,23 +748,33 @@ export default function OrdersPage() {
                       </td>
 
                       <td>
-                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', borderRadius: 4 }}>
                           <button
                             type="button"
-                            className="btn btn-primary"
-                            style={{ padding: '5px 10px', fontSize: '0.74rem' }}
-                            onClick={() => handlePrintAndMoveToTracker(ord)}
-                            title="Print E-Invoice Waybill & Move to Invoices Tracker"
+                            className="btn btn-info"
+                            style={{ padding: '5px 8px', fontSize: '0.74rem', borderRadius: 4 }}
+                            onClick={() => openOrderModal(ord)}
+                            title="View Document Details & BIR EIS JSON"
                           >
-                            <Printer size={13} /> Print Waybill
+                            <Eye size={13} />
                           </button>
                           <button
                             type="button"
-                            className="btn btn-outline"
-                            style={{ padding: '5px 10px', fontSize: '0.74rem' }}
-                            onClick={() => openOrderModal(ord)}
+                            className="btn btn-primary"
+                            style={{ padding: '5px 10px', fontSize: '0.74rem', borderRadius: 4 }}
+                            onClick={() => handlePrintAndMoveToTracker(ord)}
+                            title="Print E-Invoice Waybill Ticket"
                           >
-                            Details
+                            <Printer size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-success"
+                            style={{ padding: '5px 10px', fontSize: '0.74rem', borderRadius: 4 }}
+                            onClick={() => handleDownloadSoftCopy(ord)}
+                            title="Download Waybill Soft Copy (PNG)"
+                          >
+                            <Download size={13} />
                           </button>
                         </div>
                       </td>
@@ -732,9 +816,8 @@ export default function OrdersPage() {
                 <button
                   key={pageNum}
                   type="button"
-                  className={`btn pagination-btn ${
-                    pageNum === safePage ? 'btn-primary' : 'btn-outline'
-                  }`}
+                  className={`btn pagination-btn ${pageNum === safePage ? 'btn-primary' : 'btn-outline'
+                    }`}
                   onClick={() => setCurrentPage(pageNum)}
                 >
                   {pageNum}
