@@ -8,19 +8,13 @@ import {
   FileText,
   X,
   Package,
-  Layers,
-  ExternalLink,
   Receipt,
   FileCheck,
   AlertCircle,
   Eye,
   Copy,
   Check,
-  Building2,
-  Hash,
-  Clock,
-  ShieldCheck,
-  Tag
+  ShieldCheck
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/apiClient';
@@ -60,68 +54,67 @@ function mergePrintedAndApiDocs(localPrinted, apiDocs) {
   for (const doc of apiDocs) {
     if (!doc) continue;
     const key = String(doc.id || doc.documentNumber || doc.orderId || Math.random());
-    const apiPrintCount = Array.isArray(doc.prints) ? doc.prints.length : (doc.printCount || 0);
-    map.set(key, {
-      ...doc,
-      isFromApi: true,
-      lastPrintedAt:
-        doc.prints?.[0]?.printed_at ||
-        doc.prints?.[0]?.created_at ||
-        doc.issuedAt ||
-        '—',
-      printCount: Math.max(apiPrintCount, doc.printCount || 1),
-      isReprint: apiPrintCount > 1 || Boolean(doc.isReprint)
-    });
-  }
-
-  for (const doc of apiDocs) {
-    if (!doc) continue;
-    const matchKey =
-      Array.from(map.keys()).find((k) => {
-        const existing = map.get(k);
-        return (
-          (doc.id && existing.id && String(doc.id) === String(existing.id)) ||
-          (doc.documentNumber &&
-            doc.documentNumber !== '—' &&
-            existing.documentNumber === doc.documentNumber)
-        );
-      }) || String(doc.id || doc.documentNumber || doc.orderId);
-
-    const existing = map.get(matchKey);
     const apiPrintCount = Math.max(
       Number(doc.printCount || 0),
       Array.isArray(doc.prints) ? doc.prints.length : 0
     );
+    map.set(key, {
+      ...doc,
+      isFromApi: true,
+      lastPrintedAt:
+        doc.lastPrintedAt ||
+        doc.prints?.[0]?.printed_at ||
+        doc.prints?.[0]?.created_at ||
+        doc.issuedAt ||
+        '—',
+      printCount: Math.max(apiPrintCount, 1),
+      reprintCount: Math.max(Number(doc.reprintCount || 0), apiPrintCount - 1, 0),
+      isReprint: Boolean(doc.isReprint || apiPrintCount > 1)
+    });
+  }
 
-    if (existing) {
-      const mergedCount = Math.max(Number(existing.printCount || 1), apiPrintCount, 1);
+  // 2. Enhance with local print history (thermal station reprints)
+  for (const item of localPrinted) {
+    if (!item) continue;
+    const matchKey = Array.from(map.keys()).find((k) => {
+      const existing = map.get(k);
+      return (
+        (item.id && existing.id && String(item.id) === String(existing.id)) ||
+        (item.documentNumber &&
+          item.documentNumber !== '—' &&
+          existing.documentNumber === item.documentNumber) ||
+        (item.orderId &&
+          item.orderId !== '—' &&
+          existing.orderId === item.orderId)
+      );
+    });
+
+    if (matchKey) {
+      const existing = map.get(matchKey);
+      const mergedCount = Math.max(Number(item.printCount || 1), Number(existing.printCount || 1));
       map.set(matchKey, {
         ...existing,
-        lines: existing.lines?.length ? existing.lines : doc.lines,
-        prints: doc.prints?.length ? doc.prints : existing.prints,
+        ...item,
+        lines: item.lines?.length ? item.lines : existing.lines,
+        prints: existing.prints?.length ? existing.prints : item.prints,
         printCount: mergedCount,
-        reprintCount: Math.max(Number(doc.reprintCount || 0), mergedCount - 1, 0),
-        isReprint: Boolean(doc.isReprint || existing.isReprint || mergedCount > 1),
+        reprintCount: Math.max(Number(existing.reprintCount || 0), mergedCount - 1, 0),
+        isReprint: Boolean(item.isReprint || existing.isReprint || mergedCount > 1),
         lastPrintedAt:
-          doc.lastPrintedAt ||
+          item.lastPrintedAt ||
           existing.lastPrintedAt ||
-          doc.prints?.[0]?.printed_at ||
-          doc.issuedAt ||
+          existing.issuedAt ||
           '—',
-        lastReprintReason: doc.lastReprintReason || existing.lastReprintReason || null
+        lastReprintReason: item.lastReprintReason || existing.lastReprintReason || null
       });
-    } else {
-      map.set(matchKey, {
-        ...doc,
-        lastPrintedAt:
-          doc.lastPrintedAt ||
-          doc.prints?.[0]?.printed_at ||
-          doc.prints?.[0]?.created_at ||
-          doc.issuedAt ||
-          '—',
-        printCount: Math.max(apiPrintCount, 1),
-        reprintCount: Math.max(Number(doc.reprintCount || 0), apiPrintCount - 1, 0),
-        isReprint: Boolean(doc.isReprint || apiPrintCount > 1)
+    } else if (apiDocs.length === 0) {
+      const key = String(item.id || item.documentNumber || item.orderId || Math.random());
+      const count = Number(item.printCount || 1);
+      map.set(key, {
+        ...item,
+        printCount: count,
+        reprintCount: Math.max(count - 1, 0),
+        isReprint: Boolean(item.isReprint || count > 1)
       });
     }
   }
@@ -142,7 +135,7 @@ export default function InvoicesPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [notificationMsg, setNotificationMsg] = useState('');
 
-  // Reprint / Print Modal
+  // Reprint / Print Side Modal
   const [reprintModalDoc, setReprintModalDoc] = useState(null);
   const [selectedReason, setSelectedReason] = useState(
     reprintReasons[0]?.code || 'damaged'
@@ -150,7 +143,7 @@ export default function InvoicesPage() {
   const [reprintNote, setReprintNote] = useState('');
   const [reprintLoading, setReprintLoading] = useState(false);
 
-  // Document Details & EIS JSON Modal
+  // Document Details & EIS JSON Side Modal
   const [inspectDoc, setInspectDoc] = useState(null);
   const [inspectTab, setInspectTab] = useState('details'); // 'details' | 'eis'
   const [eisJsonLoading, setEisJsonLoading] = useState(false);
@@ -219,28 +212,68 @@ export default function InvoicesPage() {
   // Fetch all documents from einvoice.ipolymersolutionscorp.com/api/documents
   const loadAllDocuments = useCallback(async (q = '') => {
     setLoading(true);
+    setApiError(null);
     const localList = getPrintedInvoiceRecords();
     const trimmed = q.trim();
 
-    let apiNormalized = [];
-    const printsRes = await fetchPrintedInvoices(trimmed ? { q: trimmed } : {});
-    if (printsRes.ok && printsRes.data) {
-      const rawList = extractDocumentList(printsRes.data);
-      apiNormalized = rawList.map(normalizeDocumentRecord).filter(Boolean);
-    }
+    try {
+      let rawDocs = [];
+      let nextUrl = null;
 
-    if (apiNormalized.length === 0) {
-      const fallbackRes = trimmed
-        ? await searchDocuments(trimmed)
-        : await fetchDocumentsRegister({ printed: 1 });
-      if (fallbackRes.ok && fallbackRes.data) {
-        const rawList = extractDocumentList(fallbackRes.data);
-        apiNormalized = rawList.map(normalizeDocumentRecord).filter(Boolean);
+      // 1. Primary query to /api/documents
+      const queryObj = trimmed ? { q: trimmed } : {};
+      const docsRes = await api.get('/api/documents', queryObj);
+
+      if (docsRes.ok && docsRes.data) {
+        rawDocs.push(...extractDocumentList(docsRes.data));
+        nextUrl = docsRes.data?.next || null;
+      } else {
+        // Fallback to fetchPrintedInvoices / fetchDocumentsRegister
+        const printsRes = await fetchPrintedInvoices(trimmed ? { q: trimmed } : {});
+        if (printsRes.ok && printsRes.data) {
+          rawDocs.push(...extractDocumentList(printsRes.data));
+          nextUrl = printsRes.data?.next || null;
+        } else {
+          const fallbackRes = trimmed
+            ? await searchDocuments(trimmed)
+            : await fetchDocumentsRegister({ printed: 1 });
+          if (fallbackRes.ok && fallbackRes.data) {
+            rawDocs.push(...extractDocumentList(fallbackRes.data));
+            nextUrl = fallbackRes.data?.next || null;
+          } else if (!docsRes.ok) {
+            setApiError({
+              status: docsRes.status || fallbackRes.status || 0,
+              message:
+                docsRes.data?.detail ||
+                docsRes.statusText ||
+                'Unable to fetch documents from einvoice.ipolymersolutionscorp.com/api/documents'
+            });
+          }
+        }
       }
-    }
 
-    const merged = mergePrintedAndApiDocs(
-      trimmed
+      // Follow pagination if present to list all documents
+      let page = 1;
+      while (nextUrl && page < 20) {
+        page++;
+        try {
+          const u = new URL(nextUrl, 'https://einvoice.ipolymersolutionscorp.com');
+          const pageRes = await api.get(`/api/documents?${u.searchParams.toString()}`);
+          if (pageRes.ok && pageRes.data) {
+            const pageDocs = extractDocumentList(pageRes.data);
+            if (pageDocs.length === 0) break;
+            rawDocs.push(...pageDocs);
+            nextUrl = pageRes.data?.next || null;
+          } else {
+            break;
+          }
+        } catch {
+          break;
+        }
+      }
+
+      const apiNormalized = rawDocs.map(normalizeDocumentRecord).filter(Boolean);
+      const filteredLocal = trimmed
         ? localList.filter((item) => {
             const term = trimmed.toLowerCase();
             return (
@@ -250,9 +283,10 @@ export default function InvoicesPage() {
               String(item.buyerName || '').toLowerCase().includes(term)
             );
           })
-        : localList,
-      apiNormalized
-    );
+        : localList;
+
+      const merged = mergePrintedAndApiDocs(filteredLocal, apiNormalized);
+      setInvoices(merged);
 
       // 2. Fetch Pre-Pack queue for staging reference
       const preRes = await api.get('/api/prepack');
@@ -273,35 +307,6 @@ export default function InvoicesPage() {
 
   useEffect(() => {
     loadAllDocuments('');
-  }, [loadAllDocuments]);
-
-    async function init() {
-      const localList = getPrintedInvoiceRecords();
-      let apiNormalized = [];
-
-      const printsRes = await fetchPrintedInvoices({});
-      if (!active) return;
-
-      if (printsRes.ok && printsRes.data) {
-        const rawList = extractDocumentList(printsRes.data);
-        apiNormalized = rawList.map(normalizeDocumentRecord).filter(Boolean);
-      }
-
-      if (apiNormalized.length === 0) {
-        const regRes = await fetchDocumentsRegister({ printed: 1 });
-        if (!active) return;
-        if (regRes.ok && regRes.data) {
-          const rawList = extractDocumentList(regRes.data);
-          apiNormalized = rawList.map(normalizeDocumentRecord).filter(Boolean);
-        }
-      }
-
-      const merged = mergePrintedAndApiDocs(localList, apiNormalized);
-      setInvoices(merged);
-      setLoading(false);
-    }
-
-    init();
 
     const handlePrintedUpdate = () => {
       setInvoices((prev) => mergePrintedAndApiDocs(getPrintedInvoiceRecords(), prev));
@@ -309,10 +314,40 @@ export default function InvoicesPage() {
 
     window.addEventListener('bir-printed-invoices-updated', handlePrintedUpdate);
     return () => {
-      active = false;
       window.removeEventListener('bir-printed-invoices-updated', handlePrintedUpdate);
     };
-  }, []);
+  }, [loadAllDocuments]);
+
+  // Open Document Inspection Side Modal
+  const openInspectModal = async (inv) => {
+    setInspectDoc(inv);
+    setInspectTab('details');
+    setEisJsonData(null);
+    setCopiedEis(false);
+
+    const hydrated = await hydrateFullDoc(inv);
+    if (hydrated) {
+      setInspectDoc(hydrated);
+    }
+  };
+
+  // Fetch EIS JSON on demand
+  const loadEisJson = async (docId) => {
+    if (!docId) return;
+    setEisJsonLoading(true);
+    try {
+      const res = await api.get(`/api/documents/${encodeURIComponent(docId)}/eis-json`);
+      if (res.ok && res.data) {
+        setEisJsonData(res.data);
+      } else {
+        setEisJsonData({ error: 'No EIS JSON payload generated for this record.' });
+      }
+    } catch (err) {
+      setEisJsonData({ error: err.message });
+    } finally {
+      setEisJsonLoading(false);
+    }
+  };
 
   const openReprintModal = async (inv) => {
     setSelectedReason(reprintReasons[0]?.code || 'damaged');
@@ -479,7 +514,7 @@ export default function InvoicesPage() {
   };
 
   return (
-    <div className="invoices-page" style={{ paddingBottom: "96px" }}>
+    <div className="invoices-page" style={{ paddingBottom: '96px' }}>
       {/* Page Header */}
       <div className="page-header no-print">
         <div>
@@ -699,7 +734,7 @@ export default function InvoicesPage() {
       </div>
 
       {/* Main Documents Table Card */}
-      <div className="card-section no-print" style={{ position: "relative", overflow: "visible", marginBottom: "24px" }}>
+      <div className="card-section no-print" style={{ position: 'relative', overflow: 'visible', marginBottom: '24px' }}>
         <div className="card-section-header">
           <div>
             <h2 className="card-section-title">
@@ -718,7 +753,7 @@ export default function InvoicesPage() {
                 <th>Platform & Store</th>
                 <th>Order ID / Waybill</th>
                 <th>Buyer & Item Summary</th>
-                <th>Date Issued</th>
+                <th>Date & Time Issued</th>
                 <th>Discount & 12% VAT</th>
                 <th>Amount (PHP)</th>
                 <th>Ledger Status</th>
@@ -812,7 +847,16 @@ export default function InvoicesPage() {
 
                         return (
                           <div>
-                            {dateObj.toLocaleDateString()} {dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            <div style={{ fontWeight: 600 }}>
+                              {dateObj.toLocaleDateString('en-US', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric'
+                              })}
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              {dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
+                            </div>
                           </div>
                         );
                       })()}
@@ -830,12 +874,13 @@ export default function InvoicesPage() {
                     </td>
                     <td>
                       <span
-                        className={`badge ${inv.isPrepack
-                          ? 'badge-purple'
-                          : inv.status === 'PAID' || inv.status === 'BIR STAMPED' || inv.status === 'ISSUED'
-                            ? 'badge-emerald'
-                            : 'badge-primary'
-                          }`}
+                        className={`badge ${
+                          inv.isPrepack
+                            ? 'badge-purple'
+                            : inv.status === 'PAID' || inv.status === 'BIR STAMPED' || inv.status === 'ISSUED'
+                              ? 'badge-emerald'
+                              : 'badge-primary'
+                        }`}
                       >
                         {inv.status || 'BIR Stamped'}
                       </span>
@@ -887,16 +932,35 @@ export default function InvoicesPage() {
         </div>
 
         {/* Pagination Footer Bar */}
-        <div className="invoices-pagination-bar"
-          style={{ position: "relative", inset: "auto", zIndex: "auto", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px", padding: "16px 18px", marginTop: "0", borderTop: "1px solid var(--border-light)", background: "var(--bg-card)", width: "100%", boxSizing: "border-box" }}>
+        <div
+          className="invoices-pagination-bar"
+          style={{
+            position: 'relative',
+            inset: 'auto',
+            zIndex: 'auto',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '12px',
+            padding: '16px 18px',
+            marginTop: '0',
+            borderTop: '1px solid var(--border-light)',
+            background: 'var(--bg-card)',
+            width: '100%',
+            boxSizing: 'border-box'
+          }}
+        >
           <span className="page-subtitle">
             {filteredInvoices.length === 0
               ? 'Showing 0 of 0 Documents'
               : `Showing ${startIdx + 1}–${Math.min(startIdx + ITEMS_PER_PAGE, filteredInvoices.length)} of ${filteredInvoices.length} Records`}
           </span>
 
-          <div className="invoices-pagination-controls"
-            style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px", maxWidth: "100%" }}>
+          <div
+            className="invoices-pagination-controls"
+            style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px', maxWidth: '100%' }}
+          >
             <button
               type="button"
               className="btn btn-outline pagination-btn"
@@ -910,8 +974,9 @@ export default function InvoicesPage() {
               <button
                 key={pageNum}
                 type="button"
-                className={`btn pagination-btn ${pageNum === safePage ? 'btn-primary' : 'btn-outline'
-                  }`}
+                className={`btn pagination-btn ${
+                  pageNum === safePage ? 'btn-primary' : 'btn-outline'
+                }`}
                 onClick={() => setCurrentPage(pageNum)}
               >
                 {pageNum}
@@ -938,12 +1003,12 @@ export default function InvoicesPage() {
         >
           <div
             className="doc-modal-card"
-            style={{ maxWidth: '860px', maxHeight: '90vh', overflowY: 'auto' }}
+            style={{ maxWidth: '780px' }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="doc-modal-header">
               <div>
-                <h2 className="card-section-title" style={{ fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <h2 className="card-section-title" style={{ fontSize: '1.15rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <FileText size={18} color="var(--primary)" />
                   Document #{inspectDoc.documentNumber || inspectDoc.id}
                   <span className={`badge ${getPlatformBadge(inspectDoc.platform)}`}>
@@ -953,7 +1018,7 @@ export default function InvoicesPage() {
                     {inspectDoc.status || 'ISSUED'}
                   </span>
                 </h2>
-                <p className="page-subtitle">
+                <p className="page-subtitle" style={{ margin: '4px 0 0 0' }}>
                   Live backend write-once ledger record from <code>/api/documents/{inspectDoc.id || ''}</code>
                 </p>
               </div>
@@ -968,226 +1033,234 @@ export default function InvoicesPage() {
               </button>
             </div>
 
-            {/* Modal Tabs: Document Details vs BIR EIS JSON */}
-            <div className="filter-tabs" style={{ marginBottom: '16px' }}>
-              <button
-                type="button"
-                className={`filter-tab ${inspectTab === 'details' ? 'active' : ''}`}
-                onClick={() => setInspectTab('details')}
-              >
-                <FileText size={14} style={{ marginRight: '5px' }} /> Document Details & Lines
-              </button>
-              <button
-                type="button"
-                className={`filter-tab ${inspectTab === 'eis' ? 'active' : ''}`}
-                onClick={() => {
-                  setInspectTab('eis');
-                  if (!eisJsonData && inspectDoc.id) {
-                    loadEisJson(inspectDoc.id);
-                  }
-                }}
-              >
-                <ShieldCheck size={14} style={{ marginRight: '5px' }} /> BIR EIS JSON Preview (/api/documents/{inspectDoc.id || ''}/eis-json)
-              </button>
-            </div>
-
-            {inspectTab === 'details' ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {/* Meta details grid */}
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                    gap: '12px',
-                    padding: '14px',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--bg-app)',
-                    border: '1px solid var(--border-light)'
+            <div>
+              {/* Modal Tabs: Document Details vs BIR EIS JSON */}
+              <div className="filter-tabs" style={{ marginBottom: '14px' }}>
+                <button
+                  type="button"
+                  className={`filter-tab ${inspectTab === 'details' ? 'active' : ''}`}
+                  onClick={() => setInspectTab('details')}
+                >
+                  <FileText size={14} style={{ marginRight: '5px' }} /> Details & Lines
+                </button>
+                <button
+                  type="button"
+                  className={`filter-tab ${inspectTab === 'eis' ? 'active' : ''}`}
+                  onClick={() => {
+                    setInspectTab('eis');
+                    if (!eisJsonData && inspectDoc.id) {
+                      loadEisJson(inspectDoc.id);
+                    }
                   }}
                 >
-                  <div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
-                      Store / Channel
-                    </div>
-                    <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
-                      {inspectDoc.storeName || 'Official Store'}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
-                      Order ID
-                    </div>
-                    <div style={{ fontSize: '0.85rem', fontWeight: 600, fontFamily: 'monospace' }}>
-                      {inspectDoc.orderId || '—'}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
-                      Waybill / Tracking
-                    </div>
-                    <div style={{ fontSize: '0.85rem', fontWeight: 600, fontFamily: 'monospace' }}>
-                      {inspectDoc.tracking || '—'}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
-                      Buyer Name / TIN
-                    </div>
-                    <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
-                      {inspectDoc.buyerName || 'Marketplace Buyer'} {inspectDoc.buyerTin && inspectDoc.buyerTin !== '—' ? `(TIN: ${inspectDoc.buyerTin})` : ''}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
-                      Date Issued
-                    </div>
-                    <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
-                      {inspectDoc.issuedAt || inspectDoc.lastPrintedAt || '—'}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
-                      Station Code
-                    </div>
-                    <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
-                      {inspectDoc.lastStationCode || 'PACK-01'}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Line Items Table */}
-                <div>
-                  <h3 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '8px' }}>
-                    Itemized Line Items
-                  </h3>
-                  <div className="table-responsive" style={{ border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)' }}>
-                    <table className="data-table" style={{ fontSize: '0.8rem' }}>
-                      <thead>
-                        <tr>
-                          <th>Item Name</th>
-                          <th>SKU</th>
-                          <th>Qty</th>
-                          <th>Unit Price</th>
-                          <th>12% VAT</th>
-                          <th>Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {getDisplayLines(inspectDoc).map((line, lIdx) => (
-                          <tr key={line.id || lIdx}>
-                            <td><strong>{line.productName || line.name || `Item #${lIdx + 1}`}</strong></td>
-                            <td style={{ fontFamily: 'monospace' }}>{line.sku || '—'}</td>
-                            <td>{line.qty || line.quantity || 1}</td>
-                            <td>₱{parseFloat(line.unitPrice || line.unit_price || 0).toFixed(2)}</td>
-                            <td>₱{parseFloat(line.vatAmount || line.vat_amount || 0).toFixed(2)}</td>
-                            <td style={{ fontWeight: 700 }}>₱{parseFloat(line.lineTotal || line.line_total || line.total_amount || 0).toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Tax Breakdown Totals */}
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-                    gap: '10px',
-                    padding: '12px',
-                    backgroundColor: 'var(--bg-card)',
-                    border: '1px solid var(--border-light)',
-                    borderRadius: 'var(--radius-md)'
-                  }}
-                >
-                  <div>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Vatable Sales:</span>
-                    <div style={{ fontWeight: 700 }}>₱{inspectDoc.vatableSales || '0.00'}</div>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>12% Output VAT:</span>
-                    <div style={{ fontWeight: 700, color: 'var(--accent-emerald)' }}>₱{inspectDoc.vatAmount || '0.00'}</div>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Discount:</span>
-                    <div style={{ fontWeight: 700 }}>-₱{inspectDoc.discountAmount || '0.00'}</div>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Total Invoiced:</span>
-                    <div style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--primary)' }}>
-                      ₱{parseFloat(inspectDoc.totalAmount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Modal Footer Actions */}
-                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
-                  <button
-                    type="button"
-                    className="btn btn-outline"
-                    onClick={() => handleDownloadSoftCopy(inspectDoc)}
-                  >
-                    <Download size={14} /> Soft Copy
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => {
-                      setInspectDoc(null);
-                      openReprintModal(inspectDoc);
-                    }}
-                  >
-                    <Printer size={14} /> Print Waybill
-                  </button>
-                </div>
+                  <ShieldCheck size={14} style={{ marginRight: '5px' }} /> BIR EIS JSON Preview
+                </button>
               </div>
-            ) : (
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                    Payload submitted for BIR EIS verification compliance:
-                  </span>
-                  {eisJsonData && !eisJsonData.error && (
-                    <button
-                      type="button"
-                      className="btn btn-outline"
-                      style={{ fontSize: '0.75rem', padding: '4px 10px' }}
-                      onClick={() => {
-                        navigator.clipboard?.writeText(JSON.stringify(eisJsonData, null, 2));
-                        setCopiedEis(true);
-                        setTimeout(() => setCopiedEis(false), 2000);
-                      }}
-                    >
-                      {copiedEis ? <Check size={13} color="var(--accent-emerald)" /> : <Copy size={13} />}
-                      {copiedEis ? 'Copied' : 'Copy JSON'}
-                    </button>
-                  )}
-                </div>
 
-                {eisJsonLoading ? (
-                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                    <RefreshCw size={20} className="spinner" style={{ marginBottom: '8px' }} />
-                    <div>Loading BIR EIS JSON preview...</div>
-                  </div>
-                ) : (
-                  <pre
+              {inspectTab === 'details' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {/* Meta details grid */}
+                  <div
                     style={{
-                      backgroundColor: '#0f172a',
-                      color: '#38bdf8',
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                      gap: '12px',
                       padding: '14px',
-                      borderRadius: 'var(--radius-sm)',
-                      fontSize: '0.78rem',
-                      fontFamily: 'monospace',
-                      maxHeight: '380px',
-                      overflow: 'auto',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: 'var(--bg-app)',
                       border: '1px solid var(--border-light)'
                     }}
                   >
-                    {JSON.stringify(eisJsonData || inspectDoc.raw || inspectDoc, null, 2)}
-                  </pre>
-                )}
-              </div>
-            )}
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
+                        Store / Channel
+                      </div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
+                        {inspectDoc.storeName || 'Official Store'}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
+                        Order ID
+                      </div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, fontFamily: 'monospace' }}>
+                        {inspectDoc.orderId || '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
+                        Waybill / Tracking
+                      </div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, fontFamily: 'monospace' }}>
+                        {inspectDoc.tracking || '—'}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
+                        Buyer Name / TIN
+                      </div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
+                        {inspectDoc.buyerName || 'Marketplace Buyer'} {inspectDoc.buyerTin && inspectDoc.buyerTin !== '—' ? `(TIN: ${inspectDoc.buyerTin})` : ''}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
+                        Date & Time Issued
+                      </div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
+                        {(() => {
+                          const rawVal = inspectDoc.issuedAt || inspectDoc.lastPrintedAt;
+                          if (!rawVal || rawVal === '—') return '—';
+                          const d = new Date(rawVal);
+                          if (isNaN(d.getTime())) return rawVal;
+                          return `${d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}`;
+                        })()}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
+                        Station Code
+                      </div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
+                        {inspectDoc.lastStationCode || 'PACK-01'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Line Items Table */}
+                  <div>
+                    <h3 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '8px' }}>
+                      Itemized Line Items
+                    </h3>
+                    <div className="table-responsive" style={{ border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)' }}>
+                      <table className="data-table" style={{ fontSize: '0.8rem' }}>
+                        <thead>
+                          <tr>
+                            <th>Item Name</th>
+                            <th>SKU</th>
+                            <th>Qty</th>
+                            <th>Unit Price</th>
+                            <th>12% VAT</th>
+                            <th>Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {getDisplayLines(inspectDoc).map((line, lIdx) => (
+                            <tr key={line.id || lIdx}>
+                              <td><strong>{line.productName || line.name || `Item #${lIdx + 1}`}</strong></td>
+                              <td style={{ fontFamily: 'monospace' }}>{line.sku || '—'}</td>
+                              <td>{line.qty || line.quantity || 1}</td>
+                              <td>₱{parseFloat(line.unitPrice || line.unit_price || 0).toFixed(2)}</td>
+                              <td>₱{parseFloat(line.vatAmount || line.vat_amount || 0).toFixed(2)}</td>
+                              <td style={{ fontWeight: 700 }}>₱{parseFloat(line.lineTotal || line.line_total || line.total_amount || 0).toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Tax Breakdown Totals */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                      gap: '10px',
+                      padding: '12px',
+                      backgroundColor: 'var(--bg-card)',
+                      border: '1px solid var(--border-light)',
+                      borderRadius: 'var(--radius-md)'
+                    }}
+                  >
+                    <div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Vatable Sales:</span>
+                      <div style={{ fontWeight: 700 }}>₱{inspectDoc.vatableSales || '0.00'}</div>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>12% Output VAT:</span>
+                      <div style={{ fontWeight: 700, color: 'var(--accent-emerald)' }}>₱{inspectDoc.vatAmount || '0.00'}</div>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Discount:</span>
+                      <div style={{ fontWeight: 700 }}>-₱{inspectDoc.discountAmount || '0.00'}</div>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Total Invoiced:</span>
+                      <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--primary)' }}>
+                        ₱{parseFloat(inspectDoc.totalAmount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      Payload submitted for BIR EIS verification compliance:
+                    </span>
+                    {eisJsonData && !eisJsonData.error && (
+                      <button
+                        type="button"
+                        className="btn btn-outline"
+                        style={{ fontSize: '0.75rem', padding: '4px 10px' }}
+                        onClick={() => {
+                          navigator.clipboard?.writeText(JSON.stringify(eisJsonData, null, 2));
+                          setCopiedEis(true);
+                          setTimeout(() => setCopiedEis(false), 2000);
+                        }}
+                      >
+                        {copiedEis ? <Check size={13} color="var(--accent-emerald)" /> : <Copy size={13} />}
+                        {copiedEis ? 'Copied' : 'Copy JSON'}
+                      </button>
+                    )}
+                  </div>
+
+                  {eisJsonLoading ? (
+                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                      <RefreshCw size={20} className="spinner" style={{ marginBottom: '8px' }} />
+                      <div>Loading BIR EIS JSON preview...</div>
+                    </div>
+                  ) : (
+                    <pre
+                      style={{
+                        backgroundColor: '#0f172a',
+                        color: '#38bdf8',
+                        padding: '14px',
+                        borderRadius: 'var(--radius-sm)',
+                        fontSize: '0.78rem',
+                        fontFamily: 'monospace',
+                        maxHeight: '340px',
+                        overflow: 'auto',
+                        border: '1px solid var(--border-light)'
+                      }}
+                    >
+                      {JSON.stringify(eisJsonData || inspectDoc.raw || inspectDoc, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '18px', paddingTop: '14px', borderTop: '1px solid var(--border-light)' }}>
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => handleDownloadSoftCopy(inspectDoc)}
+              >
+                <Download size={14} /> Soft Copy (PNG)
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  const target = inspectDoc;
+                  setInspectDoc(null);
+                  openReprintModal(target);
+                }}
+              >
+                <Printer size={14} /> Print Waybill
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1205,12 +1278,12 @@ export default function InvoicesPage() {
           >
             <div className="doc-modal-header">
               <div>
-                <h2 className="card-section-title" style={{ fontSize: '1.15rem' }}>
-                  <Printer size={17} style={{ verticalAlign: 'middle', marginRight: '6px' }} />
-                  Reprint E-Invoice Waybill ({reprintModalDoc.documentNumber})
+                <h2 className="card-section-title" style={{ fontSize: '1.15rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Printer size={17} color="var(--primary)" />
+                  Print Waybill Ticket ({reprintModalDoc.documentNumber})
                 </h2>
-                <p className="page-subtitle">
-                  Preview the 100×150mm waybill layout and select a reason before reprinting or downloading a soft copy.
+                <p className="page-subtitle" style={{ margin: '4px 0 0 0' }}>
+                  Preview the 100×150mm waybill ticket and confirm print audit details.
                 </p>
               </div>
               <button
@@ -1224,8 +1297,116 @@ export default function InvoicesPage() {
               </button>
             </div>
 
-            <div className="cards-grid-2" style={{ alignItems: 'start', marginBottom: 0 }}>
-              <div>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                gap: '20px',
+                alignItems: 'start'
+              }}
+            >
+              {/* Left: Print Configuration & Audit */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div
+                  style={{
+                    backgroundColor: 'var(--bg-app)',
+                    border: '1px solid var(--border-light)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '16px'
+                  }}
+                >
+                  <h3 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '12px' }}>
+                    Print & Audit Configuration
+                  </h3>
+
+                  <div style={{ marginBottom: '14px' }}>
+                    <label
+                      style={{
+                        display: 'block',
+                        fontSize: '0.78rem',
+                        fontWeight: 700,
+                        color: 'var(--text-muted)',
+                        marginBottom: '6px'
+                      }}
+                    >
+                      Reason for Printing / Reprinting *
+                    </label>
+                    <select
+                      value={selectedReason}
+                      onChange={(e) => setSelectedReason(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border-light)',
+                        background: 'var(--bg-surface)',
+                        color: 'var(--text-main)',
+                        fontWeight: 600
+                      }}
+                    >
+                      {reprintReasons.map((r) => (
+                        <option key={r.code} value={r.code}>
+                          {r.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label
+                      style={{
+                        display: 'block',
+                        fontSize: '0.78rem',
+                        fontWeight: 700,
+                        color: 'var(--text-muted)',
+                        marginBottom: '6px'
+                      }}
+                    >
+                      Audit Note / Explanation (Optional)
+                    </label>
+                    <textarea
+                      rows={3}
+                      placeholder="e.g. Thermal paper jammed, customer requested second slip..."
+                      value={reprintNote}
+                      onChange={(e) => setReprintNote(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border-light)',
+                        background: 'var(--bg-surface)',
+                        color: 'var(--text-main)',
+                        fontSize: '0.82rem',
+                        resize: 'vertical'
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ width: '100%', justifyContent: 'center', padding: '11px' }}
+                    onClick={handleConfirmReprint}
+                    disabled={reprintLoading}
+                  >
+                    <Printer size={15} />
+                    {reprintLoading ? 'Logging & Printing...' : 'Confirm & Print Thermal Slip'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    style={{ width: '100%', justifyContent: 'center' }}
+                    onClick={() => handleDownloadSoftCopy(reprintModalDoc)}
+                  >
+                    <Download size={15} /> Download Soft Copy (PNG)
+                  </button>
+                </div>
+              </div>
+
+              {/* Right: Waybill Ticket Preview */}
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
                 <WaybillTicket
                   platform={reprintModalDoc.platform || 'Marketplace'}
                   storeName={reprintModalDoc.storeName || 'Official Store'}
@@ -1244,95 +1425,6 @@ export default function InvoicesPage() {
                   zeroRatedSales={reprintModalDoc.zeroRatedSales || '0.00'}
                   totalAmount={reprintModalDoc.totalAmount || '0.00'}
                 />
-              </div>
-
-              <div className="card-section" style={{ marginBottom: 0 }}>
-                <h3 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '12px' }}>
-                  Print & Audit Configuration
-                </h3>
-
-                <div style={{ marginBottom: '14px' }}>
-                  <label
-                    style={{
-                      display: 'block',
-                      fontSize: '0.78rem',
-                      fontWeight: 700,
-                      color: 'var(--text-muted)',
-                      marginBottom: '6px'
-                    }}
-                  >
-                    Reason for Reprinting *
-                  </label>
-                  <select
-                    value={selectedReason}
-                    onChange={(e) => setSelectedReason(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '9px 12px',
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--border-light)',
-                      background: 'var(--bg-app)',
-                      color: 'var(--text-main)',
-                      fontWeight: 600
-                    }}
-                  >
-                    {reprintReasons.map((r) => (
-                      <option key={r.code} value={r.code}>
-                        {r.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div style={{ marginBottom: '16px' }}>
-                  <label
-                    style={{
-                      display: 'block',
-                      fontSize: '0.78rem',
-                      fontWeight: 700,
-                      color: 'var(--text-muted)',
-                      marginBottom: '6px'
-                    }}
-                  >
-                    Audit Note / Explanation (Optional)
-                  </label>
-                  <textarea
-                    rows={3}
-                    placeholder="e.g. Thermal paper jammed, customer requested second slip..."
-                    value={reprintNote}
-                    onChange={(e) => setReprintNote(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--border-light)',
-                      background: 'var(--bg-app)',
-                      color: 'var(--text-main)',
-                      fontSize: '0.82rem',
-                      resize: 'vertical'
-                    }}
-                  />
-                </div>
-
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    style={{ flex: 1, justifyContent: 'center' }}
-                    onClick={handleConfirmReprint}
-                    disabled={reprintLoading}
-                  >
-                    <Printer size={15} />
-                    {reprintLoading ? 'Logging & Printing...' : 'Confirm & Print Thermal Slip'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-outline"
-                    onClick={() => handleDownloadSoftCopy(reprintModalDoc)}
-                  >
-                    <Download size={15} /> PNG
-                  </button>
-                </div>
               </div>
             </div>
           </div>

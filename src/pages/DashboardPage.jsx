@@ -291,9 +291,6 @@ export default function DashboardPage({ onNavigate }) {
       <div className="page-header">
         <div>
           <h1 className="page-title">ISC E-Invoice Executive Dashboard</h1>
-          <p className="page-subtitle">
-            BIR RMC 98-2026 EIS Compliance, write-once ledger, and marketplace order fulfillment operations.
-          </p>
         </div>
 
         <div className="page-actions">

@@ -27,7 +27,8 @@ import WaybillTicket from '../components/WaybillTicket';
 import './pages.css';
 
 const FILTER_TABS = ['All Unprinted', "Today's Orders", 'TikTok', 'Shopee', 'Lazada'];
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 5;
+const MAX_VISIBLE_PAGES = 5;
 
 function getPlatformBadge(platform) {
   const p = String(platform || '').toLowerCase();
@@ -534,9 +535,6 @@ export default function OrdersPage() {
               <Calendar size={16} style={{ verticalAlign: 'middle', marginRight: '6px' }} />
               Active Unprinted Orders List
             </h2>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              Scan the order&apos;s waybill barcode in Packing Scan Station (or click Print Waybill) to print the E-Invoice and automatically move it to the Invoices Tracker.
-            </div>
           </div>
           <span className="badge badge-primary">Live API Sync</span>
         </div>
@@ -656,9 +654,8 @@ export default function OrdersPage() {
 
                       <td>
                         <span
-                          className={`badge ${
-                            ord.holdReason ? 'badge-amber' : 'badge-emerald'
-                          }`}
+                          className={`badge ${ord.holdReason ? 'badge-amber' : 'badge-emerald'
+                            }`}
                         >
                           {ord.status}
                         </span>
@@ -708,7 +705,7 @@ export default function OrdersPage() {
         <div className="modal-pagination-bar">
           <span className="page-subtitle">
             {filteredOrders.length === 0
-              ? 'Showing 0 of 0 unprinted orders (10 per page)'
+              ? 'Showing 0 of 0 unprinted orders (5 per page)'
               : `Showing ${startIdx + 1}–${Math.min(startIdx + ITEMS_PER_PAGE, filteredOrders.length)} of ${filteredOrders.length} unprinted orders`}
           </span>
 
@@ -722,18 +719,28 @@ export default function OrdersPage() {
               Previous
             </button>
 
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
-              <button
-                key={pageNum}
-                type="button"
-                className={`btn pagination-btn ${
-                  pageNum === safePage ? 'btn-primary' : 'btn-outline'
-                }`}
-                onClick={() => setCurrentPage(pageNum)}
-              >
-                {pageNum}
-              </button>
-            ))}
+            {(() => {
+              const pageGroupStart =
+                Math.floor((safePage - 1) / MAX_VISIBLE_PAGES) * MAX_VISIBLE_PAGES + 1;
+              const pageGroupEnd = Math.min(totalPages, pageGroupStart + MAX_VISIBLE_PAGES - 1);
+              const visiblePages = Array.from(
+                { length: pageGroupEnd - pageGroupStart + 1 },
+                (_, i) => pageGroupStart + i
+              );
+
+              return visiblePages.map((pageNum) => (
+                <button
+                  key={pageNum}
+                  type="button"
+                  className={`btn pagination-btn ${
+                    pageNum === safePage ? 'btn-primary' : 'btn-outline'
+                  }`}
+                  onClick={() => setCurrentPage(pageNum)}
+                >
+                  {pageNum}
+                </button>
+              ));
+            })()}
 
             <button
               type="button"
