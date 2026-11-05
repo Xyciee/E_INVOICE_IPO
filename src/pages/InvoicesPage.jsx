@@ -10,6 +10,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
+  fetchPrintedInvoices,
+  fetchDocumentsRegister,
   searchDocuments,
   fetchDocumentDetails,
   fetchOrderDraft,
@@ -19,7 +21,8 @@ import {
   normalizeReprintReasons,
   getPrintedInvoiceRecords,
   savePrintedInvoiceRecord,
-  downloadWaybillSoftCopy
+  downloadWaybillSoftCopy,
+  getExportDownloadUrl
 } from '../services/scanService';
 import WaybillTicket from '../components/WaybillTicket';
 import './pages.css';
@@ -62,7 +65,10 @@ function mergePrintedAndApiDocs(localPrinted, apiDocs) {
       }) || String(doc.id || doc.documentNumber || doc.orderId);
 
     const existing = map.get(matchKey);
-    const apiPrintCount = Array.isArray(doc.prints) ? doc.prints.length : 0;
+    const apiPrintCount = Math.max(
+      Number(doc.printCount || 0),
+      Array.isArray(doc.prints) ? doc.prints.length : 0
+    );
 
     if (existing) {
       const mergedCount = Math.max(Number(existing.printCount || 1), apiPrintCount, 1);
@@ -72,18 +78,28 @@ function mergePrintedAndApiDocs(localPrinted, apiDocs) {
         lines: existing.lines?.length ? existing.lines : doc.lines,
         prints: doc.prints?.length ? doc.prints : existing.prints,
         printCount: mergedCount,
-        isReprint: Boolean(existing.isReprint || mergedCount > 1)
+        reprintCount: Math.max(Number(doc.reprintCount || 0), mergedCount - 1, 0),
+        isReprint: Boolean(doc.isReprint || existing.isReprint || mergedCount > 1),
+        lastPrintedAt:
+          doc.lastPrintedAt ||
+          existing.lastPrintedAt ||
+          doc.prints?.[0]?.printed_at ||
+          doc.issuedAt ||
+          '—',
+        lastReprintReason: doc.lastReprintReason || existing.lastReprintReason || null
       });
     } else {
       map.set(matchKey, {
         ...doc,
         lastPrintedAt:
+          doc.lastPrintedAt ||
           doc.prints?.[0]?.printed_at ||
           doc.prints?.[0]?.created_at ||
           doc.issuedAt ||
           '—',
         printCount: Math.max(apiPrintCount, 1),
-        isReprint: apiPrintCount > 1
+        reprintCount: Math.max(Number(doc.reprintCount || 0), apiPrintCount - 1, 0),
+        isReprint: Boolean(doc.isReprint || apiPrintCount > 1)
       });
     }
   }
@@ -165,18 +181,29 @@ export default function InvoicesPage() {
   const loadPrintedInvoices = useCallback(async (q = '') => {
     setLoading(true);
     const localList = getPrintedInvoiceRecords();
+    const trimmed = q.trim();
 
-    const res = await searchDocuments(q.trim());
     let apiNormalized = [];
-    if (res.ok && res.data) {
-      const rawList = extractDocumentList(res.data);
+    const printsRes = await fetchPrintedInvoices(trimmed ? { q: trimmed } : {});
+    if (printsRes.ok && printsRes.data) {
+      const rawList = extractDocumentList(printsRes.data);
       apiNormalized = rawList.map(normalizeDocumentRecord).filter(Boolean);
     }
 
+    if (apiNormalized.length === 0) {
+      const fallbackRes = trimmed
+        ? await searchDocuments(trimmed)
+        : await fetchDocumentsRegister({ printed: 1 });
+      if (fallbackRes.ok && fallbackRes.data) {
+        const rawList = extractDocumentList(fallbackRes.data);
+        apiNormalized = rawList.map(normalizeDocumentRecord).filter(Boolean);
+      }
+    }
+
     const merged = mergePrintedAndApiDocs(
-      q.trim()
+      trimmed
         ? localList.filter((item) => {
-            const term = q.trim().toLowerCase();
+            const term = trimmed.toLowerCase();
             return (
               String(item.documentNumber || '').toLowerCase().includes(term) ||
               String(item.orderId || '').toLowerCase().includes(term) ||
@@ -197,13 +224,23 @@ export default function InvoicesPage() {
 
     async function init() {
       const localList = getPrintedInvoiceRecords();
-      const res = await searchDocuments('');
+      let apiNormalized = [];
+
+      const printsRes = await fetchPrintedInvoices({});
       if (!active) return;
 
-      let apiNormalized = [];
-      if (res.ok && res.data) {
-        const rawList = extractDocumentList(res.data);
+      if (printsRes.ok && printsRes.data) {
+        const rawList = extractDocumentList(printsRes.data);
         apiNormalized = rawList.map(normalizeDocumentRecord).filter(Boolean);
+      }
+
+      if (apiNormalized.length === 0) {
+        const regRes = await fetchDocumentsRegister({ printed: 1 });
+        if (!active) return;
+        if (regRes.ok && regRes.data) {
+          const rawList = extractDocumentList(regRes.data);
+          apiNormalized = rawList.map(normalizeDocumentRecord).filter(Boolean);
+        }
       }
 
       const merged = mergePrintedAndApiDocs(localList, apiNormalized);
@@ -212,8 +249,15 @@ export default function InvoicesPage() {
     }
 
     init();
+
+    const handlePrintedUpdate = () => {
+      setInvoices((prev) => mergePrintedAndApiDocs(getPrintedInvoiceRecords(), prev));
+    };
+
+    window.addEventListener('bir-printed-invoices-updated', handlePrintedUpdate);
     return () => {
       active = false;
+      window.removeEventListener('bir-printed-invoices-updated', handlePrintedUpdate);
     };
   }, []);
 
@@ -343,6 +387,24 @@ export default function InvoicesPage() {
           </p>
         </div>
         <div className="page-actions">
+          <a
+            href={getExportDownloadUrl('/api/documents', { printed: 1 }, 'csv')}
+            target="_blank"
+            rel="noreferrer"
+            className="btn btn-outline"
+            style={{ textDecoration: 'none' }}
+          >
+            <Download size={15} /> CSV Export
+          </a>
+          <a
+            href={getExportDownloadUrl('/api/documents', { printed: 1 }, 'xlsx')}
+            target="_blank"
+            rel="noreferrer"
+            className="btn btn-outline"
+            style={{ textDecoration: 'none' }}
+          >
+            <Download size={15} /> Excel Export
+          </a>
           <button
             type="button"
             className="btn btn-outline"
@@ -586,6 +648,11 @@ export default function InvoicesPage() {
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '3px' }}>
                         {inv.printCount || 1}x Printed
                       </div>
+                      {inv.lastReprintReason && (
+                        <div style={{ fontSize: '0.68rem', color: '#f59e0b', marginTop: '2px' }}>
+                          Reason: {inv.lastReprintReason}
+                        </div>
+                      )}
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>

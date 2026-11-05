@@ -7,9 +7,6 @@ export default function WaybillTicket({
   invoiceNumber,
   issuedAt,
   orderId,
-  buyerName,
-  buyerTin,
-  orderStatus,
   lines,
   discountAmount,
   vatableSales,
@@ -46,16 +43,6 @@ export default function WaybillTicket({
           <div className="waybill-cell-label">Invoice No.</div>
           <div className="waybill-cell-val" style={{ fontFamily: 'monospace' }}>
             {invoiceNumber || 'PENDING'}
-          </div>
-        </div>
-        <div className="waybill-meta-cell">
-          <div className="waybill-cell-label">Buyer / Recipient</div>
-          <div className="waybill-cell-val">{buyerName || 'Marketplace Buyer'}</div>
-        </div>
-        <div className="waybill-meta-cell">
-          <div className="waybill-cell-label">Order Status / TIN</div>
-          <div className="waybill-cell-val">
-            {orderStatus || 'PAID'} {buyerTin && buyerTin !== '—' ? `· ${buyerTin}` : ''}
           </div>
         </div>
         {issuedAt && issuedAt !== '—' && (

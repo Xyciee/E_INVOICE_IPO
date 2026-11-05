@@ -3,11 +3,11 @@ import { getCsrfToken } from './authService';
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 const FALLBACK_REPRINT_REASONS = [
-  { code: 'damaged', label: 'Damaged or torn printout' },
-  { code: 'paper_jam', label: 'Printer paper jam' },
-  { code: 'faded', label: 'Faded thermal print' },
-  { code: 'lost', label: 'Misplaced before sealing' },
-  { code: 'other', label: 'Other reason' }
+  { code: 'printer_jam', label: 'Printer jam or paper problem' },
+  { code: 'damaged', label: 'Printout unreadable or damaged' },
+  { code: 'lost', label: 'Invoice lost before it went in the box' },
+  { code: 'box_repacked', label: 'Box repacked' },
+  { code: 'other', label: 'Other' }
 ];
 
 export function normalizeReprintReasons(reasons) {
@@ -239,13 +239,54 @@ function parseIssueResult(res) {
     return {
       outcome: 'DB_DOWN_503',
       title: 'Database Unavailable',
-      reason: data?.detail || 'Database did not respond. Please retry.'
+      reason: data?.detail || data?.message || 'Database did not respond. Please retry.'
     };
   }
 
   const rawState = String(
     data?.outcome || data?.result || data?.status || data?.state || data?.draft_state || ''
   ).toLowerCase();
+
+  if (status === 202 || rawState === 'not_synced') {
+    return {
+      outcome: 'NOT_SYNCED_202',
+      title: 'Order Not Synced Yet',
+      reason: data?.problem || data?.detail || data?.message || 'The order has not arrived yet.'
+    };
+  }
+
+  if (status === 409 || rawState === 'ambiguous') {
+    return {
+      outcome: 'AMBIGUOUS_409',
+      title: 'Duplicate Waybill Found',
+      reason:
+        data?.problem ||
+        data?.detail ||
+        data?.message ||
+        'The waybill matches more than one order. Put the box aside and tell a supervisor.'
+    };
+  }
+
+  if (
+    rawState === 'cancelled' ||
+    rawState === 'returned' ||
+    rawState === 'not_paid' ||
+    data?.do_not_ship === true
+  ) {
+    return {
+      outcome: rawState === 'not_paid' ? 'DO_NOT_SHIP_AMBER' : 'DO_NOT_SHIP_RED',
+      title:
+        rawState === 'not_paid'
+          ? 'Do Not Ship — Unpaid Order'
+          : 'Do Not Ship — Cancelled / Returned',
+      reason:
+        data?.problem ||
+        data?.reason ||
+        data?.detail ||
+        `Order is ${rawState.toUpperCase()}. Do not ship.`,
+      order: data?.order || null
+    };
+  }
 
   const invoice =
     data?.invoice ||
@@ -261,7 +302,7 @@ function parseIssueResult(res) {
     rawState.includes('not_started') ||
     rawState.includes('hold') ||
     rawState.includes('waiting') ||
-    (!invoice && (data?.hold_reason || data?.reason));
+    (!invoice && (data?.problem || data?.hold_reason || data?.reason));
 
   if (isBlocked) {
     const draft = data?.draft || data?.order || {};
@@ -269,6 +310,7 @@ function parseIssueResult(res) {
       data?.draft_state || draft?.state || data?.state || data?.code || rawState || 'blocked';
 
     let reason =
+      data?.problem ||
       data?.reason ||
       data?.hold_reason ||
       draft?.hold_reason ||
@@ -304,6 +346,8 @@ function parseIssueResult(res) {
   return {
     outcome: alreadyIssued ? 'ALREADY_ISSUED' : 'ISSUED_NOW',
     invoice,
+    lines: data?.lines || invoice?.lines || null,
+    printSummary: data?.print_summary || data?.prints || null,
     order: data?.order || null
   };
 }
@@ -335,16 +379,47 @@ export async function logInvoicePrint(
     body: payload
   });
 
-  if (res.status === 409) {
+  if (res.status === 400 && (res.data?.error === 'reason_required' || res.data?.reasons)) {
     return {
       ...res,
-      printOutcome: 'REFUSED_REPLACED_409',
-      replacementNumber:
+      printOutcome: 'REASON_REQUIRED_400',
+      reasons: res.data?.reasons || null,
+      message: res.data?.message || res.data?.detail || 'Reprint requires a reason.'
+    };
+  }
+
+  if (res.status === 409) {
+    const isReplaced =
+      res.data?.error === 'invoice_replaced' ||
+      Boolean(
         res.data?.replacement_number ||
-        res.data?.replaced_by_number ||
-        res.data?.replaced_by?.document_number ||
-        null,
-      message: res.data?.detail || 'This invoice was replaced by a newer reissued invoice.'
+          res.data?.replaced_by_number ||
+          res.data?.replaced_by
+      );
+
+    if (isReplaced) {
+      return {
+        ...res,
+        printOutcome: 'REFUSED_REPLACED_409',
+        replacementNumber:
+          res.data?.replacement_number ||
+          res.data?.replaced_by_number ||
+          res.data?.replaced_by?.document_number ||
+          null,
+        message:
+          res.data?.message ||
+          res.data?.detail ||
+          'This invoice was replaced by a newer reissued invoice.'
+      };
+    }
+
+    return {
+      ...res,
+      printOutcome: 'CONCURRENT_REPRINT_409',
+      message:
+        res.data?.message ||
+        res.data?.detail ||
+        'Another station printed first; a reprint reason is required.'
     };
   }
 
@@ -405,8 +480,10 @@ export function extractDocumentList(data) {
   if (Array.isArray(data)) return data;
   if (Array.isArray(data.results)) return data.results;
   if (Array.isArray(data.documents)) return data.documents;
+  if (Array.isArray(data.prints)) return data.prints;
   if (Array.isArray(data.items)) return data.items;
   if (Array.isArray(data.orders)) return data.orders;
+  if (Array.isArray(data.rows)) return data.rows;
   if (data.header || data.document || data.id || data.document_number) {
     return [data];
   }
@@ -734,6 +811,7 @@ export function normalizeDocumentRecord(raw) {
       order.platform_order_id ||
       order.external_order_id ||
       raw.order_id ||
+      raw.platform_order_id ||
       order.id ||
       '—',
     tracking:
@@ -744,6 +822,8 @@ export function normalizeDocumentRecord(raw) {
       order.tracking_number ||
       order.waybill ||
       raw.tracking ||
+      raw.tracking_number ||
+      raw.waybill ||
       '—',
     platform,
     storeId: doc.store_id || order.store_id || raw.store_id || null,
@@ -759,13 +839,50 @@ export function normalizeDocumentRecord(raw) {
       'Marketplace Buyer',
     buyerTin: doc.buyer_tin || doc.tin || order.buyer_tin || '—',
     status: String(
-      doc.status ||
+      order.status ||
+        order.order_status ||
+        order.platform_status ||
+        raw.order_status ||
+        raw.platform_status ||
+        doc.status ||
         doc.state ||
         doc.document_status ||
-        order.status ||
         raw.status ||
-        'ISSUED'
+        'PAID'
     ).toUpperCase(),
+    invoiceState: String(
+      raw.invoice_state ||
+        raw.draft_state ||
+        order.invoice_state ||
+        order.draft_state ||
+        doc.invoice_state ||
+        doc.draft_state ||
+        raw.state ||
+        doc.state ||
+        (doc.document_number || raw.document_number ? 'issued' : 'due')
+    ).toLowerCase(),
+    holdReason:
+      raw.problem ||
+      raw.hold_reason ||
+      order.problem ||
+      order.hold_reason ||
+      doc.problem ||
+      doc.hold_reason ||
+      null,
+    orderDate:
+      order.created_at ||
+      order.order_date ||
+      order.ordered_at ||
+      order.paid_at ||
+      raw.created_at ||
+      raw.order_date ||
+      raw.ordered_at ||
+      raw.paid_at ||
+      doc.order_date ||
+      doc.created_at ||
+      doc.issued_at ||
+      raw.issued_at ||
+      '—',
     totalAmount: formatMoney(totalNum, rawTotal ? String(rawTotal) : '0.00'),
     discountAmount,
     vatableSales: formatMoney(vatableNum, '0.00'),
@@ -795,12 +912,129 @@ export function normalizeDocumentRecord(raw) {
     lines,
     prints,
     creditNotes,
+    printCount: Number(
+      doc.print_count ??
+        raw.print_count ??
+        doc.prints_count ??
+        (prints.length > 0 ? prints.length : 0)
+    ),
+    reprintCount: Number(
+      doc.reprint_count ??
+        raw.reprint_count ??
+        (prints.length > 1 ? prints.length - 1 : 0)
+    ),
+    isReprint: Boolean(
+      doc.reprinted ??
+        raw.reprinted ??
+        doc.is_reprint ??
+        doc.is_reprinted ??
+        (doc.reprint_count && Number(doc.reprint_count) > 0) ??
+        prints.length > 1
+    ),
+    lastPrintedAt:
+      doc.last_printed_at ||
+      raw.last_printed_at ||
+      doc.printed_at ||
+      raw.printed_at ||
+      prints[0]?.printed_at ||
+      prints[0]?.created_at ||
+      null,
+    lastReprintReason:
+      doc.last_reason ||
+      raw.last_reason ||
+      doc.reprint_reason ||
+      prints[0]?.reason ||
+      null,
+    isCurrent:
+      doc.is_current !== undefined
+        ? Boolean(doc.is_current)
+        : raw.is_current !== undefined
+          ? Boolean(raw.is_current)
+          : !doc.replaced_by && !raw.replaced_by,
     raw: doc
   };
 }
 
-export function fetchPrepackOrders(problemsOnly = false) {
-  const qs = problemsOnly ? '?problems_only=1' : '';
+function buildQueryString(params = {}) {
+  const searchParams = new URLSearchParams();
+  Object.entries(params).forEach(([key, val]) => {
+    if (val !== undefined && val !== null && val !== '') {
+      searchParams.append(key, String(val));
+    }
+  });
+  const qs = searchParams.toString();
+  return qs ? `?${qs}` : '';
+}
+
+export function fetchPrintedInvoices(params = {}) {
+  return request(`/api/prints${buildQueryString(params)}`);
+}
+
+export function fetchDocumentsRegister(params = {}) {
+  return request(`/api/documents${buildQueryString(params)}`);
+}
+
+export function fetchCreditNotesList(params = {}) {
+  return request(`/api/credit-notes${buildQueryString(params)}`);
+}
+
+export function fetchOrdersList(params = {}) {
+  return request(`/api/orders${buildQueryString(params)}`);
+}
+
+export function issueMissedScanOrder(platform, storeId, orderId) {
+  const p = encodeURIComponent(String(platform).toLowerCase().trim());
+  const s = encodeURIComponent(String(storeId).trim());
+  const o = encodeURIComponent(String(orderId).trim());
+  return request(`/api/orders/${p}/${s}/${o}/issue`, {
+    method: 'POST'
+  });
+}
+
+export function fetchCreditNoteCandidates(params = {}) {
+  return request(`/api/credit-notes/candidates${buildQueryString(params)}`);
+}
+
+export function fetchInvoiceBalance(invoiceId) {
+  return request(`/api/invoices/${encodeURIComponent(invoiceId)}/balance`);
+}
+
+export function issueCreditNote(payload) {
+  return request('/api/credit-notes', {
+    method: 'POST',
+    body: payload
+  });
+}
+
+export function reissueInvoice(invoiceId, payload) {
+  return request(`/api/invoices/${encodeURIComponent(invoiceId)}/reissue`, {
+    method: 'POST',
+    body: payload
+  });
+}
+
+export function fetchDocumentEisJson(documentId) {
+  return request(`/api/documents/${encodeURIComponent(documentId)}/eis-json`);
+}
+
+export function fetchReport(reportName, params = {}) {
+  return request(`/api/reports/${encodeURIComponent(reportName)}${buildQueryString(params)}`);
+}
+
+export function fetchAuditLog(params = {}) {
+  return request(`/api/audit${buildQueryString(params)}`);
+}
+
+export function getExportDownloadUrl(endpointPath, params = {}, format = 'xlsx') {
+  const qs = buildQueryString({ ...params, format });
+  return `${API_BASE}${endpointPath}${qs}`;
+}
+
+export function fetchPrepackOrders(problemsOnly = true, extraParams = {}) {
+  const qs = buildQueryString({
+    problems_only: problemsOnly ? 1 : 0,
+    ...extraParams
+  });
   return request(`/api/prepack${qs}`);
 }
 
@@ -851,14 +1085,41 @@ export function savePrintedInvoiceRecord(record, meta = {}) {
     minute: '2-digit'
   });
 
+  const cleanTrack = String(
+    meta.tracking && meta.tracking !== '—'
+      ? meta.tracking
+      : normalized.tracking || ''
+  ).trim();
+  const cleanOrderId = String(normalized.orderId || '').trim();
+
   const existingList = getPrintedInvoiceRecords();
-  const matchIdx = existingList.findIndex(
-    (item) =>
-      (normalized.id && item.id && String(item.id) === String(normalized.id)) ||
-      (normalized.documentNumber &&
-        normalized.documentNumber !== '—' &&
-        item.documentNumber === normalized.documentNumber)
-  );
+  const matchIdx = existingList.findIndex((item) => {
+    if (normalized.id && item.id && String(item.id) === String(normalized.id)) {
+      return true;
+    }
+    if (
+      normalized.documentNumber &&
+      normalized.documentNumber !== '—' &&
+      item.documentNumber === normalized.documentNumber
+    ) {
+      return true;
+    }
+    if (
+      cleanOrderId &&
+      cleanOrderId !== '—' &&
+      String(item.orderId || '').trim().toLowerCase() === cleanOrderId.toLowerCase()
+    ) {
+      return true;
+    }
+    if (
+      cleanTrack &&
+      cleanTrack !== '—' &&
+      String(item.tracking || '').trim().toLowerCase() === cleanTrack.toLowerCase()
+    ) {
+      return true;
+    }
+    return false;
+  });
 
   const prev = matchIdx >= 0 ? existingList[matchIdx] : null;
   const prevPrintCount = Number(prev?.printCount || prev?.prints?.length || 0);
@@ -888,11 +1149,166 @@ export function savePrintedInvoiceRecord(record, meta = {}) {
 
   try {
     localStorage.setItem(PRINTED_INVOICES_STORAGE_KEY, JSON.stringify(nextList));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bir-printed-invoices-updated'));
+    }
   } catch {
     // ignore storage quota errors
   }
 
   return nextList;
+}
+
+export function isOrderAlreadyPrinted(order, printedRecords = []) {
+  if (!order) return false;
+
+  if (
+    Number(order.printCount || 0) > 0 ||
+    (Array.isArray(order.prints) && order.prints.length > 0) ||
+    order.raw?.printed === true ||
+    order.raw?.is_printed === true ||
+    Number(order.raw?.print_count || 0) > 0 ||
+    Boolean(order.lastPrintedAt && order.lastPrintedAt !== '—')
+  ) {
+    return true;
+  }
+
+  const ordId = String(order.orderId || '').trim().toLowerCase();
+  const track = String(order.tracking || '').trim().toLowerCase();
+  const docId = order.id ? String(order.id).trim() : '';
+  const docNum = String(order.documentNumber || '').trim().toLowerCase();
+
+  return printedRecords.some((pr) => {
+    if (!pr) return false;
+    if (docId && pr.id && String(pr.id).trim() === docId) return true;
+    if (
+      docNum &&
+      docNum !== '—' &&
+      String(pr.documentNumber || '').trim().toLowerCase() === docNum
+    ) {
+      return true;
+    }
+    if (
+      ordId &&
+      ordId !== '—' &&
+      String(pr.orderId || '').trim().toLowerCase() === ordId
+    ) {
+      return true;
+    }
+    if (
+      track &&
+      track !== '—' &&
+      String(pr.tracking || '').trim().toLowerCase() === track
+    ) {
+      return true;
+    }
+    return false;
+  });
+}
+
+export async function fetchActiveUnprintedOrders(searchTerm = '') {
+  const trimmed = searchTerm.trim();
+  const queryParams = trimmed ? { q: trimmed, limit: 200 } : { limit: 200 };
+
+  const [ordersRes, prepackRes, printsRes] = await Promise.all([
+    fetchOrdersList(queryParams),
+    fetchPrepackOrders(false, trimmed ? { q: trimmed } : {}),
+    fetchPrintedInvoices({})
+  ]);
+
+  const localPrinted = getPrintedInvoiceRecords();
+  const apiPrinted =
+    printsRes.ok && printsRes.data
+      ? extractDocumentList(printsRes.data).map(normalizeDocumentRecord).filter(Boolean)
+      : [];
+  const allPrinted = [...localPrinted, ...apiPrinted];
+
+  const combinedMap = new Map();
+
+  const addRawItems = (rawItems) => {
+    for (const raw of rawItems) {
+      const norm = normalizeDocumentRecord(raw);
+      if (!norm) continue;
+
+      const key =
+        norm.orderId && norm.orderId !== '—'
+          ? `${String(norm.platform).toLowerCase()}:${norm.orderId}`
+          : norm.tracking && norm.tracking !== '—'
+            ? `wb:${norm.tracking}`
+            : norm.id
+              ? `id:${norm.id}`
+              : `doc:${norm.documentNumber}-${Math.random()}`;
+
+      const prev = combinedMap.get(key);
+      if (prev) {
+        combinedMap.set(key, {
+          ...prev,
+          ...norm,
+          id: norm.id || prev.id,
+          documentNumber:
+            norm.documentNumber && norm.documentNumber !== '—'
+              ? norm.documentNumber
+              : prev.documentNumber,
+          tracking:
+            norm.tracking && norm.tracking !== '—' ? norm.tracking : prev.tracking,
+          lines: norm.lines?.length ? norm.lines : prev.lines,
+          productSummary:
+            norm.productSummary && norm.productSummary !== '—'
+              ? norm.productSummary
+              : prev.productSummary,
+          totalAmount:
+            norm.totalAmount && norm.totalAmount !== '0.00'
+              ? norm.totalAmount
+              : prev.totalAmount,
+          orderDate:
+            norm.orderDate && norm.orderDate !== '—' ? norm.orderDate : prev.orderDate
+        });
+      } else {
+        combinedMap.set(key, norm);
+      }
+    }
+  };
+
+  if (ordersRes.ok && ordersRes.data) {
+    addRawItems(extractDocumentList(ordersRes.data));
+  }
+  if (prepackRes.ok && prepackRes.data) {
+    addRawItems(extractDocumentList(prepackRes.data));
+  }
+
+  if (combinedMap.size === 0) {
+    const docRes = trimmed
+      ? await searchDocuments(trimmed)
+      : await fetchDocumentsRegister({ printed: 0, limit: 200 });
+    if (docRes.ok && docRes.data) {
+      addRawItems(extractDocumentList(docRes.data));
+    }
+  }
+
+  const allOrders = Array.from(combinedMap.values());
+  const unprintedOrders = allOrders.filter(
+    (order) => !isOrderAlreadyPrinted(order, allPrinted)
+  );
+
+  const uniquePrintedMap = new Map();
+  for (const pr of allPrinted) {
+    if (!pr) continue;
+    const k = String(pr.id || pr.documentNumber || pr.orderId || pr.tracking);
+    if (!uniquePrintedMap.has(k)) uniquePrintedMap.set(k, pr);
+  }
+
+  return {
+    ok: ordersRes.ok || prepackRes.ok || allOrders.length > 0,
+    status: ordersRes.status || prepackRes.status || 200,
+    unprintedOrders,
+    printedCount: uniquePrintedMap.size,
+    errorMessage:
+      !ordersRes.ok && !prepackRes.ok
+        ? ordersRes.data?.detail ||
+          prepackRes.data?.detail ||
+          `Unable to load orders (${ordersRes.status}).`
+        : null
+  };
 }
 
 function wrapTextLines(ctx, text, maxWidth) {
@@ -1003,11 +1419,9 @@ export function downloadWaybillSoftCopy(doc) {
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(colMid, y);
-  ctx.lineTo(colMid, y + rowH * 2);
+  ctx.lineTo(colMid, y + rowH);
   ctx.moveTo(10, y + rowH);
   ctx.lineTo(width - 10, y + rowH);
-  ctx.moveTo(10, y + rowH * 2);
-  ctx.lineTo(width - 10, y + rowH * 2);
   ctx.stroke();
 
   ctx.fillStyle = '#475569';
@@ -1019,19 +1433,6 @@ export function downloadWaybillSoftCopy(doc) {
   ctx.font = 'bold 11px monospace';
   ctx.fillText(String(doc.orderId || '—').slice(0, 24), 18, y + 31);
   ctx.fillText(String(doc.documentNumber || 'PENDING').slice(0, 24), colMid + 10, y + 31);
-
-  y += rowH;
-
-  ctx.fillStyle = '#475569';
-  ctx.font = 'bold 9px sans-serif';
-  ctx.fillText('BUYER / RECIPIENT', 18, y + 14);
-  ctx.fillText('ORDER STATUS / TIN', colMid + 10, y + 14);
-
-  ctx.fillStyle = '#0f172a';
-  ctx.font = 'bold 11px sans-serif';
-  ctx.fillText(String(doc.buyerName || 'Marketplace Buyer').slice(0, 24), 18, y + 31);
-  const statusTin = `${doc.status || 'PAID'}${doc.buyerTin && doc.buyerTin !== '—' ? ` · ${doc.buyerTin}` : ''}`;
-  ctx.fillText(statusTin.slice(0, 24), colMid + 10, y + 31);
 
   y += rowH;
 
