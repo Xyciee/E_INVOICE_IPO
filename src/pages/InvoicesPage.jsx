@@ -472,14 +472,11 @@ export default function InvoicesPage() {
   };
 
   return (
-    <div className="invoices-page animate-fade-in">
+    <div className="invoices-page" style={{ paddingBottom: "96px" }}>
       {/* Page Header */}
       <div className="page-header no-print">
         <div>
           <h1 className="page-title">E-Invoice Documents & Ledger Tracker</h1>
-          <p className="page-subtitle">
-            All electronic invoices from <code>einvoice.ipolymersolutionscorp.com/api/documents</code>, BIR write-once ledger records, and pre-pack queue dispatches.
-          </p>
         </div>
         <div className="page-actions">
           <button
@@ -566,7 +563,6 @@ export default function InvoicesPage() {
           </div>
           <div className="stat-card-footer">
             <span className="badge badge-primary">{invoices.length} Documents</span>
-            <span className="trend-description">in live BIR ledger</span>
           </div>
         </div>
 
@@ -678,25 +674,14 @@ export default function InvoicesPage() {
       </div>
 
       {/* Main Documents Table Card */}
-      <div className="card-section no-print">
+      <div className="card-section no-print" style={{ position: "relative", overflow: "visible", marginBottom: "24px" }}>
         <div className="card-section-header">
           <div>
             <h2 className="card-section-title">
               {activeFilter === 'Pre-Pack Orders'
                 ? 'Pre-Pack Fulfillment Queue (/api/prepack)'
-                : 'E-Invoice Documents (einvoice.ipolymersolutionscorp.com/api/documents)'}
+                : 'E-Invoice Documents'}
             </h2>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              {activeFilter === 'Pre-Pack Orders'
-                ? 'Marketplace orders awaiting waybill barcode scan. Stamped automatically upon scanning.'
-                : 'Permanent, immutable write-once ledger entries for BIR EIS compliance.'}
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span className="badge badge-primary">
-              {filteredInvoices.length} {activeFilter === 'Pre-Pack Orders' ? 'Orders in Queue' : 'Documents'}
-            </span>
-            <span className="badge badge-emerald">100×150mm Waybill Ready</span>
           </div>
         </div>
 
@@ -708,7 +693,7 @@ export default function InvoicesPage() {
                 <th>Platform & Store</th>
                 <th>Order ID / Waybill</th>
                 <th>Buyer & Item Summary</th>
-                <th>Date Issued / Stamped</th>
+                <th>Date Issued</th>
                 <th>Discount & 12% VAT</th>
                 <th>Amount (PHP)</th>
                 <th>Ledger Status</th>
@@ -721,7 +706,7 @@ export default function InvoicesPage() {
                   <td colSpan="9" style={{ textAlign: 'center', padding: '36px', color: 'var(--text-muted)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
                       <RefreshCw size={16} className="spinner" />
-                      <span>Loading documents from <code>einvoice.ipolymersolutionscorp.com/api/documents</code>...</span>
+                      <span>Please wait... </span>
                     </div>
                   </td>
                 </tr>
@@ -775,11 +760,6 @@ export default function InvoicesPage() {
                           {inv.documentNumber || `INV-${inv.id || idx + 1}`}
                         </strong>
                       </button>
-                      {inv.id && (
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                          Doc ID #{inv.id}
-                        </div>
-                      )}
                     </td>
                     <td>
                       <span className={`badge ${getPlatformBadge(inv.platform)}`}>
@@ -793,27 +773,24 @@ export default function InvoicesPage() {
                       <div style={{ fontFamily: 'monospace', fontWeight: 600 }}>
                         {inv.orderId || '—'}
                       </div>
-                      <div style={{ fontFamily: 'monospace', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                        WB: {inv.tracking || '—'}
-                      </div>
                     </td>
                     <td style={{ maxWidth: '230px' }}>
                       <strong>{inv.buyerName || 'Marketplace Buyer'}</strong>
-                      <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {inv.productSummary && inv.productSummary !== '—'
-                          ? inv.productSummary
-                          : inv.lines?.length > 0
-                            ? inv.lines.map((l) => `${l.productName || l.name} (x${l.qty || 1})`).join(', ')
-                            : `${inv.platform || 'Marketplace'} Order Item`}
-                      </div>
                     </td>
                     <td style={{ fontSize: '0.8rem' }}>
-                      <div>{inv.issuedAt && inv.issuedAt !== '—' ? inv.issuedAt : (inv.lastPrintedAt || '—')}</div>
-                      {inv.lastStationCode && inv.lastStationCode !== '—' && (
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                          Station: {inv.lastStationCode}
-                        </div>
-                      )}
+                      {(() => {
+                        const rawDate = inv.issuedAt && inv.issuedAt !== '—' ? inv.issuedAt : inv.lastPrintedAt;
+                        if (!rawDate || rawDate === '—') return <div>—</div>;
+
+                        const dateObj = new Date(rawDate);
+                        if (isNaN(dateObj.getTime())) return <div>{rawDate}</div>;
+
+                        return (
+                          <div>
+                            {dateObj.toLocaleDateString()} {dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td style={{ fontSize: '0.78rem' }}>
                       <div>
@@ -828,19 +805,18 @@ export default function InvoicesPage() {
                     </td>
                     <td>
                       <span
-                        className={`badge ${
-                          inv.isPrepack
-                            ? 'badge-purple'
-                            : inv.status === 'PAID' || inv.status === 'BIR STAMPED' || inv.status === 'ISSUED'
-                              ? 'badge-emerald'
-                              : 'badge-primary'
-                        }`}
+                        className={`badge ${inv.isPrepack
+                          ? 'badge-purple'
+                          : inv.status === 'PAID' || inv.status === 'BIR STAMPED' || inv.status === 'ISSUED'
+                            ? 'badge-emerald'
+                            : 'badge-primary'
+                          }`}
                       >
                         {inv.status || 'BIR Stamped'}
                       </span>
                       {inv.isReprint && (
                         <span className="badge badge-amber" style={{ marginLeft: '4px', fontSize: '0.68rem' }}>
-                          REPRINT
+
                         </span>
                       )}
                     </td>
@@ -848,12 +824,12 @@ export default function InvoicesPage() {
                       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                         <button
                           type="button"
-                          className="btn btn-outline"
+                          className="btn btn-info"
                           style={{ padding: '5px 8px', fontSize: '0.74rem' }}
                           onClick={() => openInspectModal(inv)}
                           title="View Document Details & BIR EIS JSON"
                         >
-                          <Eye size={13} /> Details
+                          <Eye size={13} />
                         </button>
                         <button
                           type="button"
@@ -862,16 +838,16 @@ export default function InvoicesPage() {
                           onClick={() => openReprintModal(inv)}
                           title="Print E-Invoice Waybill Ticket"
                         >
-                          <Printer size={13} /> {inv.isReprint ? 'Reprint' : 'Print Waybill'}
+                          <Printer size={13} />
                         </button>
                         <button
                           type="button"
-                          className="btn btn-outline"
+                          className="btn btn-success"
                           style={{ padding: '5px 10px', fontSize: '0.74rem' }}
                           onClick={() => handleDownloadSoftCopy(inv)}
                           title="Download Waybill Soft Copy (PNG)"
                         >
-                          <Download size={13} /> Soft Copy
+                          <Download size={13} />
                         </button>
                       </div>
                     </td>
@@ -883,14 +859,16 @@ export default function InvoicesPage() {
         </div>
 
         {/* Pagination Footer Bar */}
-        <div className="modal-pagination-bar">
+        <div className="invoices-pagination-bar"
+          style={{ position: "relative", inset: "auto", zIndex: "auto", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px", padding: "16px 18px", marginTop: "0", borderTop: "1px solid var(--border-light)", background: "var(--bg-card)", width: "100%", boxSizing: "border-box" }}>
           <span className="page-subtitle">
             {filteredInvoices.length === 0
               ? 'Showing 0 of 0 Documents'
               : `Showing ${startIdx + 1}–${Math.min(startIdx + ITEMS_PER_PAGE, filteredInvoices.length)} of ${filteredInvoices.length} Records`}
           </span>
 
-          <div className="modal-pagination-controls">
+          <div className="invoices-pagination-controls"
+            style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px", maxWidth: "100%" }}>
             <button
               type="button"
               className="btn btn-outline pagination-btn"
@@ -904,9 +882,8 @@ export default function InvoicesPage() {
               <button
                 key={pageNum}
                 type="button"
-                className={`btn pagination-btn ${
-                  pageNum === safePage ? 'btn-primary' : 'btn-outline'
-                }`}
+                className={`btn pagination-btn ${pageNum === safePage ? 'btn-primary' : 'btn-outline'
+                  }`}
                 onClick={() => setCurrentPage(pageNum)}
               >
                 {pageNum}
@@ -1034,7 +1011,7 @@ export default function InvoicesPage() {
                   </div>
                   <div>
                     <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
-                      Date Issued / Stamped
+                      Date Issued
                     </div>
                     <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
                       {inspectDoc.issuedAt || inspectDoc.lastPrintedAt || '—'}

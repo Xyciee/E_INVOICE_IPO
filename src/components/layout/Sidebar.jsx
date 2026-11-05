@@ -82,19 +82,12 @@ export default function Sidebar({
           id: 'credit-notes',
           label: 'Credit Notes',
           icon: FileMinus,
-          badge: '3'
         }
       ]
     },
     {
       group: 'System',
       items: [
-        {
-          id: 'analytics',
-          label: 'Analytics',
-          icon: BarChart3,
-          badge: null
-        },
         {
           id: 'api-tester',
           label: 'API Tester',
