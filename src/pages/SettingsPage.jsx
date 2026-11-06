@@ -91,7 +91,7 @@ export default function SettingsPage() {
               </label>
               <input
                 type="text"
-                defaultValue="009-421-883-00000"
+                defaultValue="000-000-000-00000"
                 className="search-input"
                 style={{ width: '100%', borderRadius: 'var(--radius-md)' }}
               />

@@ -77,25 +77,17 @@ export default function Sidebar({
           id: 'invoices',
           label: 'Invoices Tracker',
           icon: Receipt,
-          badge: '14'
         },
         {
           id: 'credit-notes',
           label: 'Credit Notes',
           icon: FileMinus,
-          badge: '3'
         }
       ]
     },
     {
       group: 'System',
       items: [
-        {
-          id: 'analytics',
-          label: 'Analytics',
-          icon: BarChart3,
-          badge: null
-        },
         {
           id: 'api-tester',
           label: 'API Tester',

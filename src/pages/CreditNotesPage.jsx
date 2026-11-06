@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   FileMinus,
   Search,
@@ -11,7 +11,13 @@ import {
   RotateCcw,
   X,
   FileCheck2,
-  Eye
+  Eye,
+  AlertCircle,
+  Copy,
+  Check,
+  Building2,
+  Hash,
+  ExternalLink
 } from 'lucide-react';
 import { api } from '../services/apiClient';
 import { useAuth } from '../context/AuthContext';
@@ -27,105 +33,6 @@ const REASON_CODES = [
   { code: '05', label: 'Other Commercial Adjustment / Correction' }
 ];
 
-// Initial realistic candidates when backend returns empty or before start date
-const SAMPLE_CANDIDATES = [
-  {
-    id: 'cand_1',
-    orderId: 'SHO-2026-90812',
-    tracking: 'SPXPH04928172901',
-    platform: 'Shopee',
-    storeName: 'Qualisafe Official Store',
-    customer: 'Apex Logistics Corp (TIN 004-912-340-000)',
-    invoiceId: 'INV-2026-0428',
-    invoiceDate: 'Oct 29, 2026',
-    trigger: 'Buyer Requested Reissue (Company TIN & Name)',
-    suggestedCode: '01',
-    totalInvoiceAmount: '840.00',
-    creditableBalance: '840.00',
-    items: [
-      { id: 'item_1', name: 'Qualisafe Medical Nitrile Gloves (Box of 100)', qty: 2, unitPrice: '420.00', creditable: '840.00' }
-    ]
-  },
-  {
-    id: 'cand_2',
-    orderId: 'LAZ-2026-44129',
-    tracking: 'LX-PH-992182741',
-    platform: 'Lazada',
-    storeName: 'First Protect PH',
-    customer: 'Maria Santos (Personal Buyer)',
-    invoiceId: 'INV-2026-0422',
-    invoiceDate: 'Oct 27, 2026',
-    trigger: 'Carrier Returned - Parcel Undelivered / Refused',
-    suggestedCode: '02',
-    totalInvoiceAmount: '1250.00',
-    creditableBalance: '1250.00',
-    items: [
-      { id: 'item_2', name: 'First Protect Heavy-Duty Barrier Tape (500m)', qty: 1, unitPrice: '1250.00', creditable: '1250.00' }
-    ]
-  },
-  {
-    id: 'cand_3',
-    orderId: 'TIK-2026-11843',
-    tracking: 'JNT6291048172',
-    platform: 'TikTok Shop',
-    storeName: 'Baby Bright Official',
-    customer: 'Chloe Gomez (Buyer Cancelled)',
-    invoiceId: 'INV-2026-0419',
-    invoiceDate: 'Oct 25, 2026',
-    trigger: 'Buyer Cancelled After Packing Scan',
-    suggestedCode: '03',
-    totalInvoiceAmount: '450.00',
-    creditableBalance: '450.00',
-    items: [
-      { id: 'item_3', name: 'Baby Bright Organic Wipes (Pack of 3)', qty: 1, unitPrice: '450.00', creditable: '450.00' }
-    ]
-  }
-];
-
-// Initial realistic issued credit notes ledger
-const SAMPLE_ISSUED = [
-  {
-    id: 'CN-2026-0038',
-    invoiceId: 'INV-2026-0410',
-    orderId: 'SHO-2026-88129',
-    platform: 'Shopee',
-    storeName: 'Qualisafe Official Store',
-    date: 'Oct 28, 2026 14:22 Manila',
-    reasonCode: '01',
-    reason: 'Buyer requested corporate TIN and official company receipt details',
-    amount: '680.00',
-    status: 'EIS Registered',
-    author: 'accounting_user',
-    replacedBy: 'INV-2026-0411'
-  },
-  {
-    id: 'CN-2026-0037',
-    invoiceId: 'INV-2026-0402',
-    orderId: 'LAZ-2026-42991',
-    platform: 'Lazada',
-    storeName: 'First Protect PH',
-    date: 'Oct 26, 2026 11:05 Manila',
-    reasonCode: '02',
-    reason: 'Defective product returned by customer; inspected and approved by QA',
-    amount: '1120.00',
-    status: 'EIS Registered',
-    author: 'accounting_user'
-  },
-  {
-    id: 'CN-2026-0036',
-    invoiceId: 'INV-2026-0395',
-    orderId: 'TIK-2026-10492',
-    platform: 'TikTok Shop',
-    storeName: 'Baby Bright Official',
-    date: 'Oct 24, 2026 16:48 Manila',
-    reasonCode: '03',
-    reason: 'Failed pickup attempt by courier; order auto-cancelled by marketplace',
-    amount: '380.00',
-    status: 'EIS Registered',
-    author: 'accounting_user'
-  }
-];
-
 export default function CreditNotesPage() {
   const { user } = useAuth();
   const notify = useNotify();
@@ -134,11 +41,12 @@ export default function CreditNotesPage() {
   const [activeTab, setActiveTab] = useState('candidates'); // 'candidates' | 'issued' | 'balance'
   const [searchQuery, setSearchQuery] = useState('');
   const [platformFilter, setPlatformFilter] = useState('All');
-  const [loadingCandidates, setLoadingCandidates] = useState(false);
 
-  // Candidates & Issued Data State
-  const [candidates, setCandidates] = useState(SAMPLE_CANDIDATES);
-  const [issuedLedger, setIssuedLedger] = useState(SAMPLE_ISSUED);
+  // Live Data States
+  const [candidates, setCandidates] = useState([]);
+  const [issuedLedger, setIssuedLedger] = useState([]);
+  const [loadingCandidates, setLoadingCandidates] = useState(false);
+  const [loadingLedger, setLoadingLedger] = useState(false);
 
   // Issue Modal State
   const [showIssueModal, setShowIssueModal] = useState(false);
@@ -150,52 +58,77 @@ export default function CreditNotesPage() {
   const [fetchingBalance, setFetchingBalance] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // JSON Preview Modal State
+  // BIR EIS JSON Modal State
   const [previewDoc, setPreviewDoc] = useState(null);
+  const [copiedJson, setCopiedJson] = useState(false);
+  const [loadingJson, setLoadingJson] = useState(false);
 
   // Balance Inspector State
-  const [balanceInputInvoice, setBalanceInputInvoice] = useState('INV-2026-0428');
+  const [balanceInputInvoice, setBalanceInputInvoice] = useState('');
   const [balanceResult, setBalanceResult] = useState(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
 
-  // Fetch candidate list from live backend /api/credit-notes/candidates
-  const fetchLiveCandidates = async (showNotification = false) => {
+  // 1. Fetch live pending candidate orders
+  const fetchLiveCandidates = useCallback(async (showNotification = false) => {
     setLoadingCandidates(true);
     try {
       const res = await api.get('/api/credit-notes/candidates');
-      if (res.ok && Array.isArray(res.data) && res.data.length > 0) {
+      if (res.ok && Array.isArray(res.data)) {
         setCandidates(res.data);
         if (showNotification) {
-          notify.success('Updated', `Fetched ${res.data.length} candidate orders from backend.`);
+          notify.success('Updated', `Fetched ${res.data.length} candidate record(s).`);
         }
       } else {
+        setCandidates([]);
         if (showNotification) {
-          notify.info('Work List Current', 'No pending candidate orders reported by backend.');
+          notify.info('Work List Current', 'No pending credit note candidates found.');
         }
       }
     } catch (err) {
-      console.warn('Could not load candidates from backend:', err);
-      if (showNotification) {
-        notify.warning('Backend Notice', 'Using cached work list data (backend returned 503 or offline).');
-      }
+      notify.danger('Candidates Error', err.message || 'Unable to load candidates from backend.');
+      setCandidates([]);
     } finally {
       setLoadingCandidates(false);
     }
-  };
+  }, [notify]);
+
+  // 2. Fetch live issued credit notes ledger
+  const fetchIssuedLedger = useCallback(async (showNotification = false) => {
+    setLoadingLedger(true);
+    try {
+      const res = await api.get('/api/credit-notes');
+      if (res.ok && Array.isArray(res.data)) {
+        setIssuedLedger(res.data);
+        if (showNotification) {
+          notify.success('Ledger Refreshed', `Loaded ${res.data.length} credit note(s).`);
+        }
+      } else {
+        setIssuedLedger([]);
+      }
+    } catch (err) {
+      notify.danger('Ledger Error', err.message || 'Unable to load issued credit notes.');
+      setIssuedLedger([]);
+    } finally {
+      setLoadingLedger(false);
+    }
+  }, [notify]);
 
   useEffect(() => {
     fetchLiveCandidates(false);
-  }, []);
+    fetchIssuedLedger(false);
+  }, [fetchLiveCandidates, fetchIssuedLedger]);
 
   // Filter candidates
   const filteredCandidates = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
     return candidates.filter((item) => {
       const matchesSearch =
-        searchQuery === '' ||
-        item.orderId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.customer?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.invoiceId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.tracking?.toLowerCase().includes(searchQuery.toLowerCase());
+        !q ||
+        item.orderId?.toLowerCase().includes(q) ||
+        item.customer?.toLowerCase().includes(q) ||
+        item.invoiceId?.toLowerCase().includes(q) ||
+        item.tracking?.toLowerCase().includes(q) ||
+        item.storeName?.toLowerCase().includes(q);
       const matchesPlatform = platformFilter === 'All' || item.platform === platformFilter;
       return matchesSearch && matchesPlatform;
     });
@@ -203,42 +136,49 @@ export default function CreditNotesPage() {
 
   // Filter issued ledger
   const filteredIssued = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
     return issuedLedger.filter((item) => {
       const matchesSearch =
-        searchQuery === '' ||
-        item.id?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.invoiceId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.orderId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.reason?.toLowerCase().includes(searchQuery.toLowerCase());
+        !q ||
+        item.id?.toLowerCase().includes(q) ||
+        item.invoiceId?.toLowerCase().includes(q) ||
+        item.orderId?.toLowerCase().includes(q) ||
+        item.reason?.toLowerCase().includes(q) ||
+        item.storeName?.toLowerCase().includes(q);
       const matchesPlatform = platformFilter === 'All' || item.platform === platformFilter;
       return matchesSearch && matchesPlatform;
     });
   }, [issuedLedger, searchQuery, platformFilter]);
 
-  // Launch Issue Modal for a specific candidate
-  const handleOpenIssueCandidate = async (candidate) => {
+  // Total Credited Sum
+  const totalCreditedValue = useMemo(() => {
+    return issuedLedger.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
+  }, [issuedLedger]);
+
+  // Launch Issue Modal pre-populated from a candidate
+  const handleOpenIssueCandidate = (candidate) => {
     setSelectedCandidate(candidate);
-    setModalInvoiceId(candidate.invoiceId);
+    setModalInvoiceId(candidate.invoiceId || '');
     setModalReasonCode(candidate.suggestedCode || '01');
     setModalReasonText(candidate.trigger || '');
 
-    // Setup lines
-    if (candidate.items && candidate.items.length > 0) {
+    if (Array.isArray(candidate.items) && candidate.items.length > 0) {
       setModalLines(
         candidate.items.map((it) => ({
-          lineId: it.id,
-          name: it.name,
+          lineId: it.id || it.line_id,
+          name: it.name || it.description || 'Product Line',
           creditable: parseFloat(it.creditable || it.unitPrice || '0').toFixed(2),
           amountToCredit: parseFloat(it.creditable || it.unitPrice || '0').toFixed(2)
         }))
       );
     } else {
+      const amount = parseFloat(candidate.creditableBalance || candidate.totalInvoiceAmount || '0').toFixed(2);
       setModalLines([
         {
           lineId: 'line_1',
-          name: `Goods for order ${candidate.orderId}`,
-          creditable: parseFloat(candidate.totalInvoiceAmount || '0').toFixed(2),
-          amountToCredit: parseFloat(candidate.totalInvoiceAmount || '0').toFixed(2)
+          name: `Goods for order ${candidate.orderId || candidate.invoiceId}`,
+          creditable: amount,
+          amountToCredit: amount
         }
       ]);
     }
@@ -246,7 +186,7 @@ export default function CreditNotesPage() {
     setShowIssueModal(true);
   };
 
-  // Open manual issue modal
+  // Open blank manual issue modal
   const handleOpenManualIssue = () => {
     setSelectedCandidate(null);
     setModalInvoiceId('');
@@ -256,86 +196,76 @@ export default function CreditNotesPage() {
     setShowIssueModal(true);
   };
 
-  // Live balance fetch for manual invoice ID
+  // Live balance lookup for manual modal entry
   const handleLookupInvoiceBalance = async () => {
-    if (!modalInvoiceId.trim()) {
-      notify.warning('Invoice ID Required', 'Please enter an invoice ID to inspect open balance.');
+    const target = modalInvoiceId.trim();
+    if (!target) {
+      notify.warning('Invoice Required', 'Please enter an invoice ID to query balance.');
       return;
     }
     setFetchingBalance(true);
     try {
-      const res = await api.get(`/api/invoices/${encodeURIComponent(modalInvoiceId.trim())}/balance`);
+      const res = await api.get(`/api/invoices/${encodeURIComponent(target)}/balance`);
       if (res.ok && res.data) {
-        const lines = res.data.lines || [
-          {
-            line_id: 'line_1',
-            description: res.data.description || `Invoice Item for ${modalInvoiceId}`,
-            open_balance: res.data.open_balance || res.data.balance || '500.00'
-          }
-        ];
-        setModalLines(
-          lines.map((l) => ({
-            lineId: l.line_id || l.id || 'line_1',
-            name: l.description || l.name || 'Product / Item',
-            creditable: parseFloat(l.open_balance || l.balance || '0').toFixed(2),
-            amountToCredit: parseFloat(l.open_balance || l.balance || '0').toFixed(2)
-          }))
-        );
-        notify.success('Balance Loaded', `Retrieved open balance for ${modalInvoiceId}.`);
+        const lines = res.data.lines || [];
+        if (lines.length > 0) {
+          setModalLines(
+            lines.map((l) => ({
+              lineId: l.line_id || l.id,
+              name: l.description || l.name || 'Line Item',
+              creditable: parseFloat(l.open_balance ?? l.remaining ?? '0').toFixed(2),
+              amountToCredit: parseFloat(l.open_balance ?? l.remaining ?? '0').toFixed(2)
+            }))
+          );
+        } else {
+          const bal = parseFloat(res.data.open_balance ?? res.data.balance ?? '0').toFixed(2);
+          setModalLines([
+            {
+              lineId: 'line_1',
+              name: `Invoice ${target} Total Balance`,
+              creditable: bal,
+              amountToCredit: bal
+            }
+          ]);
+        }
+        notify.success('Balance Loaded', `Retrieved open ledger balance for ${target}.`);
       } else {
-        notify.warning('Fallback Balance', `Using estimated line balance for ${modalInvoiceId}.`);
-        setModalLines([
-          {
-            lineId: 'line_1',
-            name: `Invoice lines for ${modalInvoiceId}`,
-            creditable: '840.00',
-            amountToCredit: '840.00'
-          }
-        ]);
+        notify.warning('Not Found', `No open balance records returned for ${target}.`);
       }
-    } catch {
-      notify.danger('Balance Lookup Failed', 'Could not fetch balance from API.');
+    } catch (err) {
+      notify.danger('Lookup Failed', err.message || 'Could not query invoice balance.');
     } finally {
       setFetchingBalance(false);
     }
   };
 
-  // Inspector tab balance check
+  // Inspector Tab balance check
   const handleInspectBalance = async () => {
-    if (!balanceInputInvoice.trim()) return;
+    const target = balanceInputInvoice.trim();
+    if (!target) return;
     setBalanceLoading(true);
+    setBalanceResult(null);
     try {
-      const res = await api.get(`/api/invoices/${encodeURIComponent(balanceInputInvoice.trim())}/balance`);
+      const res = await api.get(`/api/invoices/${encodeURIComponent(target)}/balance`);
       if (res.ok && res.data) {
         setBalanceResult(res.data);
       } else {
-        // Fallback demo balance simulation
-        setBalanceResult({
-          invoice_id: balanceInputInvoice.trim(),
-          status: 'issued',
-          original_total: '840.00',
-          total_credited: '0.00',
-          open_balance: '840.00',
-          lines: [
-            { line_id: 'l1', description: 'Industrial Protective Goods', original_amount: '840.00', credited: '0.00', remaining: '840.00' }
-          ]
-        });
+        notify.warning('No Records', `No active balance found for ${target}.`);
       }
-    } catch {
-      notify.danger('Error', 'Failed to retrieve balance.');
+    } catch (err) {
+      notify.danger('Lookup Error', err.message || 'Failed to inspect invoice balance.');
     } finally {
       setBalanceLoading(false);
     }
   };
 
-  // Calculate total amount to credit
+  // Calculated total amount to credit
   const totalCreditAmount = useMemo(() => {
     return modalLines
       .reduce((acc, curr) => acc + (parseFloat(curr.amountToCredit) || 0), 0)
       .toFixed(2);
   }, [modalLines]);
 
-  // Line amount input change
   const handleLineAmountChange = (index, value) => {
     setModalLines((prev) =>
       prev.map((line, i) => {
@@ -343,14 +273,13 @@ export default function CreditNotesPage() {
         const maxVal = parseFloat(line.creditable) || 0;
         let num = parseFloat(value);
         if (isNaN(num)) num = 0;
-        if (num > maxVal) num = maxVal; // Prevent over-crediting
+        if (num > maxVal) num = maxVal;
         if (num < 0) num = 0;
         return { ...line, amountToCredit: value };
       })
     );
   };
 
-  // Set line to full creditable amount
   const handleLineCreditFull = (index) => {
     setModalLines((prev) =>
       prev.map((line, i) => {
@@ -360,36 +289,34 @@ export default function CreditNotesPage() {
     );
   };
 
-  // Submit Credit Note (calls POST /api/credit-notes)
+  // Submit Credit Note (POST /api/credit-notes)
   const handleSubmitCreditNote = async (e) => {
     e.preventDefault();
 
-    if (!modalInvoiceId.trim()) {
-      notify.warning('Validation', 'Invoice ID is mandatory.');
+    const inv = modalInvoiceId.trim();
+    if (!inv) {
+      notify.warning('Validation', 'Target invoice ID is required.');
       return;
     }
-
     if (!modalReasonText.trim()) {
-      notify.warning('Validation', 'Please provide a clear reason for this credit note audit record.');
+      notify.warning('Validation', 'Please provide a reason description for BIR audit logging.');
       return;
     }
-
     if (parseFloat(totalCreditAmount) <= 0) {
-      notify.warning('Validation', 'Credit note amount must be greater than ₱0.00.');
+      notify.warning('Validation', 'Credit Note amount must be greater than ₱0.00.');
       return;
     }
 
-    // Check over-crediting constraint
     for (const l of modalLines) {
       if (parseFloat(l.amountToCredit) > parseFloat(l.creditable)) {
-        notify.danger('Over-crediting Error', `Line "${l.name}" exceeds remaining open balance of ₱${l.creditable}.`);
+        notify.danger('Over-crediting Error', `"${l.name}" exceeds remaining balance of ₱${l.creditable}.`);
         return;
       }
     }
 
     const confirmed = await confirm({
       title: 'Issue Immutable Credit Note?',
-      message: `You are about to issue Credit Note for ₱${totalCreditAmount} against Invoice ${modalInvoiceId}. Once submitted, this cannot be modified or deleted per BIR RMC 98-2026 EIS guidelines.`,
+      message: `You are about to issue Credit Note for ₱${parseFloat(totalCreditAmount).toLocaleString('en-PH', { minimumFractionDigits: 2 })} against Invoice ${inv}. Once registered, it cannot be modified or deleted under BIR RMC 98-2026 guidelines.`,
       confirmText: 'Issue Credit Note',
       cancelText: 'Cancel & Review',
       variant: 'warning'
@@ -399,7 +326,7 @@ export default function CreditNotesPage() {
 
     setIsSubmitting(true);
     const payload = {
-      invoice_id: modalInvoiceId.trim(),
+      invoice_id: inv,
       reason_code: modalReasonCode,
       reason: modalReasonText.trim(),
       lines: modalLines.map((l) => ({
@@ -410,111 +337,73 @@ export default function CreditNotesPage() {
 
     try {
       const res = await api.post('/api/credit-notes', payload);
-
-      const newCnId = res.data?.id || `CN-2026-${String(Math.floor(Math.random() * 9000) + 1000)}`;
-
-      // Append to issued ledger
-      const newEntry = {
-        id: newCnId,
-        invoiceId: modalInvoiceId.trim(),
-        orderId: selectedCandidate?.orderId || 'Direct-Issue',
-        platform: selectedCandidate?.platform || 'Direct',
-        storeName: selectedCandidate?.storeName || 'Ipolymer Solutions Corp.',
-        date: new Date().toLocaleDateString('en-PH', {
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric'
-        }) + ' ' + new Date().toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' }) + ' Manila',
-        reasonCode: modalReasonCode,
-        reason: modalReasonText.trim(),
-        amount: totalCreditAmount,
-        status: 'EIS Registered',
-        author: user?.username || 'accounting_staff'
-      };
-
-      setIssuedLedger((prev) => [newEntry, ...prev]);
-
-      // Remove from candidates if it was selected
-      if (selectedCandidate) {
-        setCandidates((prev) => prev.filter((c) => c.id !== selectedCandidate.id));
+      if (res.ok && res.data) {
+        notify.success('Issued', `Credit Note ${res.data.id || 'record'} registered successfully.`);
+        if (selectedCandidate) {
+          setCandidates((prev) => prev.filter((c) => c.id !== selectedCandidate.id));
+        }
+        setShowIssueModal(false);
+        fetchIssuedLedger(false);
+        setActiveTab('issued');
+      } else {
+        notify.danger('Submission Failed', res.message || 'Could not register credit note.');
       }
-
-      notify.success(
-        'Credit Note Issued',
-        `Successfully issued ${newCnId} for ₱${totalCreditAmount}. Write-once audit ledger updated.`
-      );
-
-      setShowIssueModal(false);
-      setActiveTab('issued');
     } catch (err) {
-      notify.danger('Issue Failed', err.message || 'Unable to issue credit note to backend.');
+      notify.danger('Issue Failed', err.message || 'Error communicating with backend.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // View BIR EIS JSON preview
+  // View Live BIR EIS JSON Payload
   const handleViewEisJson = async (cn) => {
+    setLoadingJson(true);
+    setCopiedJson(false);
     try {
       const res = await api.get(`/api/documents/${encodeURIComponent(cn.id)}/eis-json`);
       if (res.ok && res.data) {
         setPreviewDoc({ ...cn, eisJson: res.data });
       } else {
-        // Sample standard BIR payload
-        setPreviewDoc({
-          ...cn,
-          eisJson: {
-            header: {
-              document_type: 'CREDIT_NOTE',
-              document_number: cn.id,
-              referenced_invoice: cn.invoiceId,
-              issue_date: new Date().toISOString(),
-              seller_tin: '000-849-219-000',
-              seller_name: 'Ipolymer Solutions Corp.',
-              reason_code: cn.reasonCode,
-              reason_description: cn.reason
-            },
-            financial_summary: {
-              currency: 'PHP',
-              total_credited_amount: cn.amount,
-              vatable_sales_deduction: (parseFloat(cn.amount) / 1.12).toFixed(2),
-              vat_amount_deduction: (parseFloat(cn.amount) - parseFloat(cn.amount) / 1.12).toFixed(2)
-            },
-            compliance: {
-              bir_rmc: '98-2026',
-              validation_status: 'PASSED_SCHEMA_V1.2',
-              timestamp_utc8: new Date().toISOString()
-            }
-          }
-        });
+        notify.warning('EIS Schema', 'No generated EIS payload returned by backend for this record.');
       }
-    } catch {
-      notify.danger('Failed', 'Could not generate EIS JSON preview.');
+    } catch (err) {
+      notify.danger('Failed', err.message || 'Could not retrieve EIS JSON data.');
+    } finally {
+      setLoadingJson(false);
     }
+  };
+
+  const handleCopyJson = () => {
+    if (!previewDoc?.eisJson) return;
+    navigator.clipboard.writeText(JSON.stringify(previewDoc.eisJson, null, 2));
+    setCopiedJson(true);
+    setTimeout(() => setCopiedJson(false), 2000);
   };
 
   return (
     <div className="cn-page animate-fade-in">
       {/* Header */}
-      <div className="page-header" style={{ marginBottom: '16px' }}>
+      <div className="page-header" style={{ marginBottom: '18px' }}>
         <div>
           <h1 className="page-title" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <FileMinus size={24} style={{ color: 'var(--accent-rose)' }} />
             Credit Notes & Adjustments
           </h1>
           <p className="page-subtitle">
-            BIR EIS & PTI Compliant write-once ledger adjustments for cancellations, returns, and invoice reissues
+            BIR EIS & PTI compliant write-once ledger adjustments for returns, order cancellations, and invoice reissues
           </p>
         </div>
 
         <div className="page-actions">
           <button
             className="btn btn-outline"
-            onClick={() => fetchLiveCandidates(true)}
-            disabled={loadingCandidates}
-            title="Refresh candidate orders from backend"
+            onClick={() => {
+              fetchLiveCandidates(true);
+              fetchIssuedLedger(true);
+            }}
+            disabled={loadingCandidates || loadingLedger}
+            title="Refresh records from backend"
           >
-            <RefreshCw size={15} className={loadingCandidates ? 'spinner' : ''} />
+            <RefreshCw size={15} className={loadingCandidates || loadingLedger ? 'spinner' : ''} />
             <span>Refresh</span>
           </button>
           <button className="btn btn-primary" onClick={handleOpenManualIssue}>
@@ -524,82 +413,68 @@ export default function CreditNotesPage() {
         </div>
       </div>
 
-      {/* Compliance Notice Banner */}
-      <div className="cn-compliance-banner">
-        <div className="cn-compliance-icon">
-          <ShieldAlert size={20} />
-        </div>
-        <div className="cn-compliance-content">
-          <div className="cn-compliance-title">Legal Rule: Write-Once Invoicing (BIR RMC 98-2026)</div>
-          <div className="cn-compliance-text">
-            Issued invoices are immutable and never deleted. Any decrease, return, or order cancellation must be
-            issued as an official <strong>Credit Note</strong>. Reissuing to a buyer’s corporate name is executed as a
-            two-step atomic ledger entry (Credit Note + New Replacement Invoice). Over-crediting is strictly prohibited.
-          </div>
-        </div>
-      </div>
-
-      {/* Stats Summary Cards */}
+      {/* Summary KPI Cards */}
       <div className="cn-stats-grid">
         <div className="cn-stat-card">
           <div className="cn-stat-top">
-            <span className="cn-stat-label">Pending Candidates</span>
-            <div className="cn-stat-icon" style={{ background: 'rgba(245, 158, 11, 0.12)', color: 'var(--accent-amber)' }}>
+            <span className="cn-stat-label">Pending Action Candidates</span>
+            <div className="cn-stat-icon" style={{ background: 'rgba(245, 158, 11, 0.12)', color: 'var(--accent-amber, #f59e0b)' }}>
               <Clock size={18} />
             </div>
           </div>
-          <div className="cn-stat-value">{candidates.length}</div>
+          <div className="cn-stat-value">{loadingCandidates ? '...' : candidates.length}</div>
           <div className="cn-stat-subtext">
-            <span>Orders flagged as cancelled or returned</span>
+            <span>Marketplace cancellations and return scans</span>
           </div>
         </div>
 
         <div className="cn-stat-card">
           <div className="cn-stat-top">
             <span className="cn-stat-label">Issued Credit Notes</span>
-            <div className="cn-stat-icon" style={{ background: 'rgba(59, 130, 246, 0.12)', color: 'var(--primary)' }}>
+            <div className="cn-stat-icon" style={{ background: 'rgba(59, 130, 246, 0.12)', color: 'var(--primary, #3b82f6)' }}>
               <FileCheck2 size={18} />
             </div>
           </div>
-          <div className="cn-stat-value">{issuedLedger.length}</div>
+          <div className="cn-stat-value">{loadingLedger ? '...' : issuedLedger.length}</div>
           <div className="cn-stat-subtext">
-            <span>Total records in immutable ledger</span>
+            <span>Total write-once audit records</span>
           </div>
         </div>
 
         <div className="cn-stat-card">
           <div className="cn-stat-top">
             <span className="cn-stat-label">Total Credited Value</span>
-            <div className="cn-stat-icon" style={{ background: 'rgba(244, 63, 94, 0.12)', color: 'var(--accent-rose)' }}>
+            <div className="cn-stat-icon" style={{ background: 'rgba(244, 63, 94, 0.12)', color: 'var(--accent-rose, #f43f5e)' }}>
               <RotateCcw size={18} />
             </div>
           </div>
           <div className="cn-stat-value">
-            ₱{issuedLedger.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+            ₱{totalCreditedValue.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className="cn-stat-subtext">
-            <span>Deductions logged for BIR VAT reconciliation</span>
+            <span>Deductions reconciled for VAT declaration</span>
           </div>
         </div>
 
         <div className="cn-stat-card">
           <div className="cn-stat-top">
-            <span className="cn-stat-label">Compliance Engine</span>
-            <div className="cn-stat-icon" style={{ background: 'rgba(16, 185, 129, 0.12)', color: 'var(--accent-emerald)' }}>
+            <span className="cn-stat-label">EIS Compliance Engine</span>
+            <div className="cn-stat-icon" style={{ background: 'rgba(16, 185, 129, 0.12)', color: 'var(--accent-emerald, #10b981)' }}>
               <CheckCircle2 size={18} />
             </div>
           </div>
-          <div className="cn-stat-value" style={{ fontSize: '1.2rem', color: 'var(--accent-emerald)' }}>
-            EIS ACTIVE
+          <div className="cn-stat-value" style={{ fontSize: '1.2rem', color: 'var(--accent-emerald, #10b981)' }}>
+            ACTIVE
           </div>
           <div className="cn-stat-subtext">
-            <span>Code 01 default • Non-overcredit lock</span>
+            <span>Strict non-overcredit balance enforcement</span>
           </div>
         </div>
       </div>
 
-      {/* Main Tabs & Table Card */}
+      {/* Main Container Card */}
       <div className="cn-toolbar-card">
+        {/* Navigation & Filter Bar */}
         <div className="cn-tabs-bar">
           <div className="cn-tabs-group">
             <button
@@ -607,7 +482,7 @@ export default function CreditNotesPage() {
               onClick={() => setActiveTab('candidates')}
             >
               <Clock size={16} />
-              <span>Accounting Work List</span>
+              <span>Accounting Candidates</span>
               <span className="cn-tab-badge cn-tab-badge-amber">{candidates.length}</span>
             </button>
 
@@ -640,6 +515,7 @@ export default function CreditNotesPage() {
               />
               {searchQuery && (
                 <button
+                  type="button"
                   onClick={() => setSearchQuery('')}
                   style={{ color: 'var(--text-subtle)' }}
                   aria-label="Clear search"
@@ -659,6 +535,7 @@ export default function CreditNotesPage() {
               <option value="Shopee">Shopee</option>
               <option value="Lazada">Lazada</option>
               <option value="TikTok Shop">TikTok Shop</option>
+              <option value="Direct">Direct / Offline</option>
             </select>
           </div>
         </div>
@@ -666,17 +543,22 @@ export default function CreditNotesPage() {
         {/* TAB 1: CANDIDATES WORK LIST */}
         {activeTab === 'candidates' && (
           <div className="cn-table-wrapper">
-            {filteredCandidates.length === 0 ? (
+            {loadingCandidates ? (
+              <div className="cn-empty-state">
+                <div className="spinner" style={{ width: '28px', height: '28px', marginBottom: '12px' }} />
+                <div>Fetching candidate orders from backend...</div>
+              </div>
+            ) : filteredCandidates.length === 0 ? (
               <div className="cn-empty-state">
                 <div className="cn-empty-icon">
-                  <CheckCircle2 size={26} style={{ color: 'var(--accent-emerald)' }} />
+                  <CheckCircle2 size={26} style={{ color: 'var(--accent-emerald, #10b981)' }} />
                 </div>
                 <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-main)' }}>
                   Work list is clear
                 </div>
                 <p style={{ maxWidth: '420px', fontSize: '0.85rem' }}>
-                  No candidate orders currently require credit notes. When marketplaces report cancellations or returns,
-                  they will automatically populate here.
+                  No candidate orders currently require credit notes. Orders flagged as returned, cancelled, or
+                  requesting re-issuance will populate here automatically.
                 </p>
               </div>
             ) : (
@@ -685,48 +567,54 @@ export default function CreditNotesPage() {
                   <tr>
                     <th>Order & Store</th>
                     <th>Target Invoice</th>
-                    <th>Trigger / Reason</th>
+                    <th>Trigger / Audit Reason</th>
                     <th>Suggested Code</th>
-                    <th>Available Balance</th>
+                    <th>Available Creditable</th>
                     <th style={{ textAlign: 'right' }}>Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredCandidates.map((cand) => (
-                    <tr key={cand.id}>
+                    <tr key={cand.id || cand.orderId}>
                       <td>
                         <div style={{ fontWeight: 700 }}>{cand.orderId}</div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
-                          <span className="cn-store-tag">{cand.platform}</span>
+                          <span className="cn-store-tag">{cand.platform || 'General'}</span>
                           <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{cand.storeName}</span>
                         </div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)', marginTop: '2px' }}>
-                          Waybill: {cand.tracking}
-                        </div>
+                        {cand.tracking && (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)', marginTop: '2px' }}>
+                            Waybill: {cand.tracking}
+                          </div>
+                        )}
                       </td>
                       <td>
-                        <div style={{ fontWeight: 600, color: 'var(--primary)' }}>{cand.invoiceId}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Issued {cand.invoiceDate}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)', marginTop: '2px' }}>
-                          Customer: {cand.customer}
-                        </div>
+                        <div style={{ fontWeight: 600, color: 'var(--primary, #3b82f6)' }}>{cand.invoiceId}</div>
+                        {cand.invoiceDate && (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Issued {cand.invoiceDate}</div>
+                        )}
+                        {cand.customer && (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)', marginTop: '2px' }}>
+                            {cand.customer}
+                          </div>
+                        )}
                       </td>
                       <td>
-                        <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{cand.trigger}</div>
-                        <div className="cn-reason-desc">Platform status change detected after packing scan</div>
+                        <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{cand.trigger || 'Adjustment Request'}</div>
+                        <div className="cn-reason-desc">{cand.notes || 'Platform status adjustment detected'}</div>
                       </td>
                       <td>
-                        <span className="cn-reason-code-badge">
-                          Code {cand.suggestedCode}
-                        </span>
+                        <span className="cn-reason-code-badge">Code {cand.suggestedCode || '01'}</span>
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '3px' }}>
-                          {REASON_CODES.find((r) => r.code === cand.suggestedCode)?.label.split('(')[0]}
+                          {REASON_CODES.find((r) => r.code === (cand.suggestedCode || '01'))?.label.split('(')[0]}
                         </div>
                       </td>
                       <td>
-                        <div className="cn-amount-main">₱{parseFloat(cand.creditableBalance).toFixed(2)}</div>
+                        <div className="cn-amount-main">
+                          ₱{parseFloat(cand.creditableBalance || cand.totalInvoiceAmount || '0').toFixed(2)}
+                        </div>
                         <span className="badge badge-emerald" style={{ marginTop: '3px' }}>
-                          Open to Credit
+                          Available
                         </span>
                       </td>
                       <td style={{ textAlign: 'right' }}>
@@ -750,7 +638,12 @@ export default function CreditNotesPage() {
         {/* TAB 2: ISSUED CREDIT NOTES LEDGER */}
         {activeTab === 'issued' && (
           <div className="cn-table-wrapper">
-            {filteredIssued.length === 0 ? (
+            {loadingLedger ? (
+              <div className="cn-empty-state">
+                <div className="spinner" style={{ width: '28px', height: '28px', marginBottom: '12px' }} />
+                <div>Loading immutable credit note records...</div>
+              </div>
+            ) : filteredIssued.length === 0 ? (
               <div className="cn-empty-state">
                 <div className="cn-empty-icon">
                   <FileMinus size={26} />
@@ -759,7 +652,7 @@ export default function CreditNotesPage() {
                   No credit notes issued
                 </div>
                 <p style={{ maxWidth: '420px', fontSize: '0.85rem' }}>
-                  No credit note documents have been logged yet. Use the work list or manual button to issue one.
+                  No credit note documents have been registered to the write-once ledger yet.
                 </p>
               </div>
             ) : (
@@ -771,7 +664,7 @@ export default function CreditNotesPage() {
                     <th>Order & Store</th>
                     <th>Reason Code & Notes</th>
                     <th>Credited Amount</th>
-                    <th>Status</th>
+                    <th>Registration Status</th>
                     <th style={{ textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
@@ -779,41 +672,39 @@ export default function CreditNotesPage() {
                   {filteredIssued.map((item) => (
                     <tr key={item.id}>
                       <td>
-                        <div style={{ fontWeight: 700, color: 'var(--accent-rose)' }}>{item.id}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)' }}>{item.date}</div>
+                        <div style={{ fontWeight: 700, color: 'var(--accent-rose, #f43f5e)' }}>{item.id}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)' }}>{item.date || item.created_at}</div>
                         {item.author && (
                           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>by {item.author}</div>
                         )}
                       </td>
                       <td>
-                        <div style={{ fontWeight: 600, color: 'var(--primary)' }}>{item.invoiceId}</div>
+                        <div style={{ fontWeight: 600, color: 'var(--primary, #3b82f6)' }}>{item.invoiceId || item.invoice_id}</div>
                         {item.replacedBy && (
-                          <div style={{ fontSize: '0.72rem', color: 'var(--accent-emerald)', marginTop: '2px' }}>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--accent-emerald, #10b981)', marginTop: '2px' }}>
                             ↳ Replaced by: <strong>{item.replacedBy}</strong>
                           </div>
                         )}
                       </td>
                       <td>
-                        <div style={{ fontWeight: 600 }}>{item.orderId}</div>
+                        <div style={{ fontWeight: 600 }}>{item.orderId || item.order_id || 'Direct'}</div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '3px' }}>
-                          <span className="cn-store-tag">{item.platform}</span>
+                          <span className="cn-store-tag">{item.platform || 'Direct'}</span>
                           <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{item.storeName}</span>
                         </div>
                       </td>
                       <td>
-                        <span className="cn-reason-code-badge">
-                          Code {item.reasonCode}
-                        </span>
-                        <div className="cn-reason-desc">{item.reason}</div>
+                        <span className="cn-reason-code-badge">Code {item.reasonCode || item.reason_code}</span>
+                        <div className="cn-reason-desc">{item.reason || item.description}</div>
                       </td>
                       <td>
-                        <div className="cn-amount-credited">-₱{parseFloat(item.amount).toFixed(2)}</div>
-                        <span style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>BIR VAT deductible</span>
+                        <div className="cn-amount-credited">-₱{parseFloat(item.amount || '0').toFixed(2)}</div>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>BIR VAT deduction</span>
                       </td>
                       <td>
                         <span className="badge badge-emerald">
                           <CheckCircle2 size={12} />
-                          {item.status}
+                          {item.status || 'EIS Registered'}
                         </span>
                         <div style={{ fontSize: '0.7rem', color: 'var(--text-subtle)', marginTop: '3px' }}>
                           Immutable Write-Once
@@ -824,7 +715,8 @@ export default function CreditNotesPage() {
                           className="btn btn-outline"
                           style={{ padding: '5px 10px', fontSize: '0.75rem' }}
                           onClick={() => handleViewEisJson(item)}
-                          title="View BIR EIS JSON preview"
+                          disabled={loadingJson}
+                          title="Inspect official BIR EIS JSON document"
                         >
                           <Eye size={13} />
                           <span>EIS JSON</span>
@@ -846,8 +738,8 @@ export default function CreditNotesPage() {
                 Inspect Invoice Creditable Balance
               </h2>
               <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
-                Calls <code>GET /api/invoices/{'{id}'}/balance</code> to query the write-once ledger for open balances per line item.
-                This prevents duplicate credit notes or over-crediting.
+                Queries <code>/api/invoices/:id/balance</code> directly against live database ledgers to verify uncredited
+                line limits before executing adjustments.
               </p>
 
               <div style={{ display: 'flex', gap: '10px' }}>
@@ -855,14 +747,15 @@ export default function CreditNotesPage() {
                   type="text"
                   className="cn-form-input"
                   style={{ flex: 1 }}
-                  placeholder="e.g. INV-2026-0428"
+                  placeholder="Enter invoice number (e.g. INV-2026-0001)..."
                   value={balanceInputInvoice}
                   onChange={(e) => setBalanceInputInvoice(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleInspectBalance()}
                 />
                 <button
                   className="btn btn-primary"
                   onClick={handleInspectBalance}
-                  disabled={balanceLoading}
+                  disabled={balanceLoading || !balanceInputInvoice.trim()}
                 >
                   {balanceLoading ? <span className="spinner" /> : <Search size={15} />}
                   <span>Check Balance</span>
@@ -873,9 +766,9 @@ export default function CreditNotesPage() {
             {balanceResult && (
               <div
                 style={{
-                  background: 'var(--bg-app)',
-                  border: '1px solid var(--border-light)',
-                  borderRadius: 'var(--radius-lg)',
+                  background: 'var(--bg-app, #f8fafc)',
+                  border: '1px solid var(--border-light, #e2e8f0)',
+                  borderRadius: 'var(--radius-lg, 10px)',
                   padding: '20px',
                   maxWidth: '720px'
                 }}
@@ -883,40 +776,46 @@ export default function CreditNotesPage() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                   <div>
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Target Invoice</span>
-                    <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--primary)' }}>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--primary, #3b82f6)' }}>
                       {balanceResult.invoice_id}
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Remaining Creditable</span>
-                    <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--accent-emerald)' }}>
+                    <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--accent-emerald, #10b981)' }}>
                       ₱{parseFloat(balanceResult.open_balance || '0').toFixed(2)}
                     </div>
                   </div>
                 </div>
 
                 <div className="cn-lines-card">
-                  <div style={{ padding: '10px 14px', background: 'var(--border-light)', fontSize: '0.75rem', fontWeight: 700 }}>
+                  <div style={{ padding: '10px 14px', background: 'var(--border-light, #e2e8f0)', fontSize: '0.75rem', fontWeight: 700 }}>
                     LINE ITEM AUDIT BREAKDOWN
                   </div>
-                  {(balanceResult.lines || []).map((l, idx) => (
-                    <div key={idx} className="cn-line-row">
-                      <div>
-                        <div style={{ fontWeight: 600 }}>{l.description || 'Line Item'}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>ID: {l.line_id}</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Original Amount</div>
-                        <div style={{ fontWeight: 600 }}>₱{parseFloat(l.original_amount || '0').toFixed(2)}</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Available to Credit</div>
-                        <div style={{ fontWeight: 700, color: 'var(--accent-emerald)' }}>
-                          ₱{parseFloat(l.remaining || l.open_balance || '0').toFixed(2)}
+                  {(balanceResult.lines || []).length === 0 ? (
+                    <div style={{ padding: '12px 14px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      No specific line-level segregation found. Total open balance: ₱{parseFloat(balanceResult.open_balance || '0').toFixed(2)}
+                    </div>
+                  ) : (
+                    balanceResult.lines.map((l, idx) => (
+                      <div key={l.line_id || idx} className="cn-line-row">
+                        <div>
+                          <div style={{ fontWeight: 600 }}>{l.description || 'Line Item'}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>ID: {l.line_id}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Original Amount</div>
+                          <div style={{ fontWeight: 600 }}>₱{parseFloat(l.original_amount || '0').toFixed(2)}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Available to Credit</div>
+                          <div style={{ fontWeight: 700, color: 'var(--accent-emerald, #10b981)' }}>
+                            ₱{parseFloat(l.remaining ?? l.open_balance ?? '0').toFixed(2)}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
 
                 <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
@@ -926,14 +825,27 @@ export default function CreditNotesPage() {
                       setModalInvoiceId(balanceResult.invoice_id);
                       setModalReasonCode('01');
                       setModalReasonText('');
-                      setModalLines(
-                        (balanceResult.lines || []).map((l) => ({
-                          lineId: l.line_id,
-                          name: l.description,
-                          creditable: parseFloat(l.remaining || l.open_balance || '0').toFixed(2),
-                          amountToCredit: parseFloat(l.remaining || l.open_balance || '0').toFixed(2)
-                        }))
-                      );
+                      const lines = balanceResult.lines || [];
+                      if (lines.length > 0) {
+                        setModalLines(
+                          lines.map((l) => ({
+                            lineId: l.line_id,
+                            name: l.description,
+                            creditable: parseFloat(l.remaining ?? l.open_balance ?? '0').toFixed(2),
+                            amountToCredit: parseFloat(l.remaining ?? l.open_balance ?? '0').toFixed(2)
+                          }))
+                        );
+                      } else {
+                        const bal = parseFloat(balanceResult.open_balance || '0').toFixed(2);
+                        setModalLines([
+                          {
+                            lineId: 'line_1',
+                            name: `Invoice ${balanceResult.invoice_id} Balance`,
+                            creditable: bal,
+                            amountToCredit: bal
+                          }
+                        ]);
+                      }
                       setShowIssueModal(true);
                     }}
                   >
@@ -953,7 +865,7 @@ export default function CreditNotesPage() {
           <div className="cn-modal-card" onMouseDown={(e) => e.stopPropagation()}>
             <div className="cn-modal-header">
               <div className="cn-modal-title">
-                <FileMinus size={20} style={{ color: 'var(--accent-rose)' }} />
+                <FileMinus size={20} style={{ color: 'var(--accent-rose, #f43f5e)' }} />
                 <span>Issue BIR EIS Credit Note</span>
               </div>
               <button
@@ -967,17 +879,17 @@ export default function CreditNotesPage() {
 
             <form onSubmit={handleSubmitCreditNote}>
               <div className="cn-modal-body">
-                {/* Invoice ID input */}
+                {/* Target Invoice */}
                 <div className="cn-form-group">
                   <label className="cn-form-label">
                     <span>Target Invoice Number</span>
-                    <span className="cn-form-hint">Must match live issued ledger invoice</span>
+                    <span className="cn-form-hint">Must exist in issued tax invoice ledger</span>
                   </label>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <input
                       type="text"
                       required
-                      placeholder="e.g. INV-2026-0428"
+                      placeholder="e.g. INV-2026-0001"
                       className="cn-form-input"
                       value={modalInvoiceId}
                       onChange={(e) => setModalInvoiceId(e.target.value)}
@@ -994,10 +906,10 @@ export default function CreditNotesPage() {
                   </div>
                 </div>
 
-                {/* Reason Code */}
+                {/* BIR Reason Code */}
                 <div className="cn-form-group">
                   <label className="cn-form-label">
-                    <span>Official Reason Code (BIR EIS Standard)</span>
+                    <span>Official Reason Code (BIR EIS Specification)</span>
                   </label>
                   <select
                     className="cn-form-select"
@@ -1012,17 +924,17 @@ export default function CreditNotesPage() {
                   </select>
                 </div>
 
-                {/* Audit Explanation */}
+                {/* Explanation */}
                 <div className="cn-form-group">
                   <label className="cn-form-label">
-                    <span>Audit Explanation & Notes</span>
-                    <span className="cn-form-hint">Mandatory for accounting compliance</span>
+                    <span>Audit Explanation & Justification</span>
+                    <span className="cn-form-hint">Mandatory for BIR audit trail</span>
                   </label>
                   <textarea
                     rows={3}
                     required
                     className="cn-form-textarea"
-                    placeholder="Provide specific details (e.g. Buyer company TIN update request; or package returned by courier with tracking receipt)"
+                    placeholder="Enter audit remarks (e.g. Customer return approved under RMA #, or re-issuance to corporate buyer with registered TIN)..."
                     value={modalReasonText}
                     onChange={(e) => setModalReasonText(e.target.value)}
                   />
@@ -1031,13 +943,13 @@ export default function CreditNotesPage() {
                 {/* Line Items Breakdown */}
                 <div className="cn-form-group">
                   <label className="cn-form-label">
-                    <span>Creditable Line Items</span>
-                    <span className="cn-form-hint">Amount cannot exceed available balance</span>
+                    <span>Creditable Line Allocations</span>
+                    <span className="cn-form-hint">Line credit cannot exceed remaining balance</span>
                   </label>
 
                   {modalLines.length === 0 ? (
                     <div style={{ padding: '14px', background: 'var(--bg-app)', borderRadius: 'var(--radius-md)', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                      No lines loaded yet. Click <strong>"Fetch Balance"</strong> above or enter invoice details.
+                      No lines loaded. Enter an invoice ID and click <strong>"Fetch Balance"</strong> above.
                     </div>
                   ) : (
                     <div className="cn-lines-card">
@@ -1080,7 +992,7 @@ export default function CreditNotesPage() {
                   )}
                 </div>
 
-                {/* Total Credit Box */}
+                {/* Deduction Summary */}
                 <div className="cn-credit-total-box">
                   <div className="cn-credit-total-label">Total Credit Note Deduction:</div>
                   <div className="cn-credit-total-num">₱{totalCreditAmount}</div>
@@ -1118,11 +1030,11 @@ export default function CreditNotesPage() {
       {/* MODAL 2: BIR EIS JSON PREVIEW */}
       {previewDoc && (
         <div className="cn-modal-overlay" onMouseDown={() => setPreviewDoc(null)}>
-          <div className="cn-modal-card" style={{ maxWidth: '640px' }} onMouseDown={(e) => e.stopPropagation()}>
+          <div className="cn-modal-card" style={{ maxWidth: '680px' }} onMouseDown={(e) => e.stopPropagation()}>
             <div className="cn-modal-header">
               <div className="cn-modal-title">
-                <FileCheck2 size={20} style={{ color: 'var(--accent-emerald)' }} />
-                <span>BIR EIS JSON Payload — {previewDoc.id}</span>
+                <FileCheck2 size={20} style={{ color: 'var(--accent-emerald, #10b981)' }} />
+                <span>BIR EIS Document Payload — {previewDoc.id}</span>
               </div>
               <button
                 className="api-icon-btn"
@@ -1133,17 +1045,28 @@ export default function CreditNotesPage() {
               </button>
             </div>
             <div className="cn-modal-body">
-              <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                This is the official JSON document generated for submission to the BIR Electronic Invoicing System (EIS).
-              </p>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: 0 }}>
+                  Live write-once schema submitted to BIR Electronic Invoicing System (EIS).
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  style={{ padding: '4px 8px', fontSize: '0.75rem', display: 'flex', gap: '5px' }}
+                  onClick={handleCopyJson}
+                >
+                  {copiedJson ? <Check size={13} style={{ color: 'var(--accent-emerald, #10b981)' }} /> : <Copy size={13} />}
+                  <span>{copiedJson ? 'Copied' : 'Copy Payload'}</span>
+                </button>
+              </div>
               <pre
                 style={{
-                  background: '#0b1220',
-                  color: '#86efac',
+                  background: '#090d16',
+                  color: '#4ade80',
                   padding: '16px',
-                  borderRadius: 'var(--radius-md)',
-                  fontFamily: 'JetBrains Mono, monospace',
-                  fontSize: '0.78rem',
+                  borderRadius: 'var(--radius-md, 8px)',
+                  fontFamily: 'JetBrains Mono, Consolas, monospace',
+                  fontSize: '0.76rem',
                   lineHeight: 1.5,
                   maxHeight: '380px',
                   overflowY: 'auto'

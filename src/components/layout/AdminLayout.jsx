@@ -65,8 +65,6 @@ export default function AdminLayout({ children, activePage, onSelectPage }) {
         <main className="admin-page-container animate-fade-in" key={activePage}>
           {children}
         </main>
-
-        <Footer />
       </div>
     </div>
   );

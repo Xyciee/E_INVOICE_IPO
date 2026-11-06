@@ -462,7 +462,7 @@ export function fetchDocumentDetails(documentId) {
 
 export function searchDocuments(query = '') {
   const q = encodeURIComponent(query.trim());
-  return request(`/api/documents?q=${q}`);
+  return request(q ? `/api/documents?q=${q}` : '/api/documents');
 }
 
 export function fetchOrderDraft(platform, storeId, orderId) {
@@ -478,6 +478,8 @@ export function fetchOrderDraft(platform, storeId, orderId) {
 export function extractDocumentList(data) {
   if (!data) return [];
   if (Array.isArray(data)) return data;
+  if (Array.isArray(data.data)) return data.data;
+  if (Array.isArray(data.invoices)) return data.invoices;
   if (Array.isArray(data.results)) return data.results;
   if (Array.isArray(data.documents)) return data.documents;
   if (Array.isArray(data.prints)) return data.prints;

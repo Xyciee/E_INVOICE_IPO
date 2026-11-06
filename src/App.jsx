@@ -7,7 +7,6 @@ import DashboardPage from './pages/DashboardPage';
 import PackingScanPage from './pages/PackingScanPage';
 import OrdersPage from './pages/OrdersPage';
 import InvoicesPage from './pages/InvoicesPage';
-import AnalyticsPage from './pages/AnalyticsPage';
 import SettingsPage from './pages/SettingsPage';
 import ApiTesterPage from './pages/ApiTesterPage';
 import CreditNotesPage from './pages/CreditNotesPage';
@@ -63,9 +62,7 @@ function AppContent() {
       case 'invoices':
         return <InvoicesPage />;
       case 'credit-notes':
-        return <CreditNotesPage />;
-      case 'analytics':
-        return <AnalyticsPage />;
+        return <CreditNotesPage e />;
       case 'settings':
         return <SettingsPage />;
       case 'api-tester':
