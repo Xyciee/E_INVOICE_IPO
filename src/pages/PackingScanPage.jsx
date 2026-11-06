@@ -15,6 +15,7 @@ import {
   X
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useConfirm, useNotify } from '../context/NotificationContext';
 import {
   checkBackendHealth,
   lookupWaybillScan,
@@ -37,6 +38,8 @@ import './pages.css';
 
 export default function PackingScanPage() {
   const { user } = useAuth();
+  const confirm = useConfirm();
+  const notify = useNotify();
   const [activeTab, setActiveTab] = useState('scanner');
 
   const [health, setHealth] = useState({ checking: true, ok: true, appEnv: null });
@@ -673,9 +676,21 @@ export default function PackingScanPage() {
     setUnresolvedList(items);
   }, []);
 
-  const handleResolve = async (scanId) => {
+  const handleResolve = async (scanId, waybill = '') => {
     const note = (notes[scanId] || '').trim();
     if (!note) return;
+
+    const ok = await confirm({
+      title: 'Resolve Unresolved Scan?',
+      message: `Are you sure you want to resolve scan #${scanId}${
+        waybill ? ` (${waybill})` : ''
+      } with note: "${note}"?`,
+      confirmText: 'Resolve Scan',
+      cancelText: 'Cancel',
+      variant: 'info',
+      icon: CheckCircle2
+    });
+    if (!ok) return;
 
     setResolvingId(scanId);
     const res = await resolveUnresolvedScan(scanId, note);
@@ -683,7 +698,13 @@ export default function PackingScanPage() {
 
     if (res.ok) {
       setNotes((prev) => ({ ...prev, [scanId]: '' }));
+      notify.success('Scan resolved', `Scan #${scanId} has been marked as resolved.`);
       loadUnresolved();
+    } else {
+      notify.danger(
+        'Resolution failed',
+        res.data?.detail || `Could not resolve scan #${scanId}.`
+      );
     }
   };
 
@@ -856,7 +877,7 @@ export default function PackingScanPage() {
                               type="button"
                               className="btn btn-primary"
                               disabled={resolvingId === id || !(notes[id] || '').trim()}
-                              onClick={() => handleResolve(id)}
+                              onClick={() => handleResolve(id, sc.tracking || sc.waybill)}
                             >
                               <Check size={14} /> Resolve
                             </button>
@@ -1243,9 +1264,6 @@ export default function PackingScanPage() {
                       <History size={17} style={{ verticalAlign: 'middle', marginRight: '6px' }} />
                       Recent Scan Activity
                     </h2>
-                    <p className="page-subtitle">
-                      Session log of scanned waybills, API status, and print outcomes (10 items per page).
-                    </p>
                   </div>
                   <button
                     type="button"
@@ -1269,7 +1287,6 @@ export default function PackingScanPage() {
                         <tr>
                           <th>Time</th>
                           <th>Waybill</th>
-                          <th>Endpoint</th>
                           <th>Status</th>
                           <th>Details</th>
                         </tr>
@@ -1280,9 +1297,6 @@ export default function PackingScanPage() {
                             <td style={{ fontFamily: 'monospace' }}>{row.time}</td>
                             <td style={{ fontFamily: 'monospace', fontWeight: 700 }}>
                               {row.tracking}
-                            </td>
-                            <td>
-                              <code>{row.endpoint}</code>
                             </td>
                             <td>
                               <span className={`badge ${row.badge}`}>{row.status}</span>

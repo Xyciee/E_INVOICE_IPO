@@ -12,10 +12,7 @@ import {
   FileCheck,
   AlertCircle,
   Eye,
-  Copy,
-  Check,
-  ChevronDown,
-  ShieldCheck
+  ChevronDown
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/apiClient';
@@ -35,17 +32,24 @@ import {
   getExportDownloadUrl
 } from '../services/scanService';
 import WaybillTicket from '../components/WaybillTicket';
+import PlatformBadge from '../components/PlatformBadge';
 import './pages.css';
 
 const FILTER_TABS = ['All Documents', 'Shopee', 'Lazada', 'TikTok', 'Pre-Pack Orders', 'Reprinted'];
 const ITEMS_PER_PAGE = 10;
 
-function getPlatformBadge(platform) {
-  const p = String(platform || '').toLowerCase();
-  if (p.includes('tiktok')) return 'badge-primary';
-  if (p.includes('shopee')) return 'badge-amber';
-  if (p.includes('lazada')) return 'badge-emerald';
-  return 'badge-primary';
+function getStatusBadge(status, holdReason = null) {
+  const s = String(status || '').trim().toUpperCase();
+  if (s === 'DUE' || s.includes('CANCEL') || s.includes('RETURN') || s.includes('BLOCK')) {
+    return 'badge-rose';
+  }
+  if (s === 'HOLD' || s.includes('HOLD') || s.includes('UNPAID') || holdReason) {
+    return 'badge-amber';
+  }
+  if (s === 'WAITING' || s.includes('WAIT') || s.includes('PENDING') || s.includes('QUEUE')) {
+    return 'badge-info';
+  }
+  return 'badge-emerald';
 }
 
 function mergePrintedAndApiDocs(localPrinted, apiDocs) {
@@ -145,13 +149,8 @@ export default function InvoicesPage() {
   const [reprintNote, setReprintNote] = useState('');
   const [reprintLoading, setReprintLoading] = useState(false);
 
-  // Document Details & EIS JSON Side Modal
+  // Document Details Side Modal
   const [inspectDoc, setInspectDoc] = useState(null);
-  const [inspectTab, setInspectTab] = useState('details'); // 'details' | 'eis'
-  const [eisJsonLoading, setEisJsonLoading] = useState(false);
-  const [eisJsonData, setEisJsonData] = useState(null);
-  const [copiedEis, setCopiedEis] = useState(false);
-
   const [printableDoc, setPrintableDoc] = useState(null);
 
   const showToast = useCallback((msg) => {
@@ -323,31 +322,10 @@ export default function InvoicesPage() {
   // Open Document Inspection Side Modal
   const openInspectModal = async (inv) => {
     setInspectDoc(inv);
-    setInspectTab('details');
-    setEisJsonData(null);
-    setCopiedEis(false);
 
     const hydrated = await hydrateFullDoc(inv);
     if (hydrated) {
       setInspectDoc(hydrated);
-    }
-  };
-
-  // Fetch EIS JSON on demand
-  const loadEisJson = async (docId) => {
-    if (!docId) return;
-    setEisJsonLoading(true);
-    try {
-      const res = await api.get(`/api/documents/${encodeURIComponent(docId)}/eis-json`);
-      if (res.ok && res.data) {
-        setEisJsonData(res.data);
-      } else {
-        setEisJsonData({ error: 'No EIS JSON payload generated for this record.' });
-      }
-    } catch (err) {
-      setEisJsonData({ error: err.message });
-    } finally {
-      setEisJsonLoading(false);
     }
   };
 
@@ -663,10 +641,7 @@ export default function InvoicesPage() {
         <div className="stat-card">
           <div className="stat-card-header">
             <span className="stat-card-label">Total Invoiced Amount</span>
-            <div
-              className="stat-card-icon-wrap"
-              style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}
-            >
+            <div className="stat-card-icon-wrap">
               <Receipt size={20} />
             </div>
           </div>
@@ -674,17 +649,14 @@ export default function InvoicesPage() {
             ₱{totalPrintedValue.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className="stat-card-footer">
-            <span className="badge badge-primary">{invoices.length} Documents</span>
+            <span className="trend-description">{invoices.length} Documents</span>
           </div>
         </div>
 
         <div className="stat-card">
           <div className="stat-card-header">
             <span className="stat-card-label">12% Output VAT Total</span>
-            <div
-              className="stat-card-icon-wrap"
-              style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}
-            >
+            <div className="stat-card-icon-wrap">
               <FileText size={20} />
             </div>
           </div>
@@ -692,33 +664,27 @@ export default function InvoicesPage() {
             ₱{totalVatValue.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className="stat-card-footer">
-            <span className="badge badge-emerald">12% VAT Stamped</span>
+            <span className="trend-description">12% VAT Stamped</span>
           </div>
         </div>
 
         <div className="stat-card">
           <div className="stat-card-header">
             <span className="stat-card-label">Pre-Pack Queue</span>
-            <div
-              className="stat-card-icon-wrap"
-              style={{ backgroundColor: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6' }}
-            >
+            <div className="stat-card-icon-wrap">
               <Package size={20} />
             </div>
           </div>
           <div className="stat-card-value">{prepackOrders.length}</div>
           <div className="stat-card-footer">
-            <span className="badge badge-purple">Orders Ready to Scan</span>
+            <span className="trend-description">Orders Ready to Scan</span>
           </div>
         </div>
 
         <div className="stat-card">
           <div className="stat-card-header">
             <span className="stat-card-label">Reprinted E-Invoices</span>
-            <div
-              className="stat-card-icon-wrap"
-              style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }}
-            >
+            <div className="stat-card-icon-wrap">
               <RefreshCw size={20} />
             </div>
           </div>
@@ -881,9 +847,10 @@ export default function InvoicesPage() {
                       </button>
                     </td>
                     <td>
-                      <span className={`badge ${getPlatformBadge(inv.platform)}`}>
-                        {inv.platform || 'Marketplace'}
-                      </span>
+                      <PlatformBadge
+                        platform={inv.platform || 'Marketplace'}
+                        printed={!inv.isPrepack}
+                      />
                       <div style={{ fontSize: '0.76rem', marginTop: '4px', fontWeight: 600 }}>
                         {inv.storeName || 'Official Store'}
                       </div>
@@ -933,12 +900,7 @@ export default function InvoicesPage() {
                     </td>
                     <td>
                       <span
-                        className={`badge ${inv.isPrepack
-                          ? 'badge-purple'
-                          : inv.status === 'PAID' || inv.status === 'BIR STAMPED' || inv.status === 'ISSUED'
-                            ? 'badge-emerald'
-                            : 'badge-primary'
-                          }`}
+                        className={`badge ${getStatusBadge(inv.status || 'BIR Stamped', inv.holdReason)}`}
                       >
                         {inv.status || 'BIR Stamped'}
                       </span>
@@ -1052,273 +1014,180 @@ export default function InvoicesPage() {
         </div>
       </div>
 
-      {/* Document Inspection & BIR EIS JSON Modal */}
+      {/* Document Details Right Side Modal - Clean UI (Inter) like Orders Page */}
       {inspectDoc && (
         <div
-          className="scan-modal-backdrop no-print"
+          className="order-drawer-backdrop no-print"
           onClick={() => setInspectDoc(null)}
         >
-          <div
-            className="doc-modal-card"
-            style={{ maxWidth: '780px' }}
+          <aside
+            className="order-right-modal"
+            role="dialog"
+            aria-modal="true"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="doc-modal-header">
+            {/* Header */}
+            <div className="modal-header">
               <div>
-                <h2 className="card-section-title" style={{ fontSize: '1.15rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <FileText size={18} color="var(--primary)" />
-                  Document #{inspectDoc.documentNumber || inspectDoc.id}
-                  <span className={`badge ${getPlatformBadge(inspectDoc.platform)}`}>
-                    {inspectDoc.platform || 'Marketplace'}
+                <div style={{ marginBottom: '4px' }}>
+                  <PlatformBadge
+                    platform={inspectDoc.platform || 'Marketplace'}
+                    printed={!inspectDoc.isPrepack}
+                  />
+                </div>
+                <div className="modal-title-row">
+                  <span>Document</span>
+                  <span className="order-id-badge num-target">
+                    #{inspectDoc.documentNumber && inspectDoc.documentNumber !== '—' ? inspectDoc.documentNumber : inspectDoc.orderId}
                   </span>
-                  <span className="badge badge-emerald">
-                    {inspectDoc.status || 'ISSUED'}
+                </div>
+                <p className="modal-subtitle">
+                  Waybill: <span className="num-target">{inspectDoc.tracking || '—'}</span> &middot; Date:{' '}
+                  <span className="num-target">
+                    {inspectDoc.issuedAt && inspectDoc.issuedAt !== '—' ? inspectDoc.issuedAt : inspectDoc.lastPrintedAt || '—'}
                   </span>
-                </h2>
-                <p className="page-subtitle" style={{ margin: '4px 0 0 0' }}>
-                  Live backend write-once ledger record from <code>/api/documents/{inspectDoc.id || ''}</code>
                 </p>
               </div>
               <button
                 type="button"
-                className="scan-modal-close"
-                style={{ position: 'static' }}
+                className="btn-close"
                 onClick={() => setInspectDoc(null)}
                 aria-label="Close"
               >
-                <X size={16} />
+                &times;
               </button>
             </div>
 
-            <div>
-              {/* Modal Tabs: Document Details vs BIR EIS JSON */}
-              <div className="filter-tabs" style={{ marginBottom: '14px' }}>
-                <button
-                  type="button"
-                  className={`filter-tab ${inspectTab === 'details' ? 'active' : ''}`}
-                  onClick={() => setInspectTab('details')}
-                >
-                  <FileText size={14} style={{ marginRight: '5px' }} /> Details & Lines
-                </button>
-                <button
-                  type="button"
-                  className={`filter-tab ${inspectTab === 'eis' ? 'active' : ''}`}
-                  onClick={() => {
-                    setInspectTab('eis');
-                    if (!eisJsonData && inspectDoc.id) {
-                      loadEisJson(inspectDoc.id);
-                    }
-                  }}
-                >
-                  <ShieldCheck size={14} style={{ marginRight: '5px' }} /> BIR EIS JSON Preview
-                </button>
+            {/* Body */}
+            <div className="modal-body">
+              {/* Metadata */}
+              <div>
+                <div className="section-title">Channel &amp; Buyer Information</div>
+                <div className="meta-box">
+                  <div className="meta-col">
+                    <span className="meta-lbl">Store</span>
+                    <span className="meta-val">
+                      {inspectDoc.platform || 'Marketplace'} &middot; {inspectDoc.storeName || 'Official Store'}
+                    </span>
+                  </div>
+                  <div className="meta-col">
+                    <span className="meta-lbl">Buyer</span>
+                    <span className="meta-val">{inspectDoc.buyerName || 'Marketplace Buyer'}</span>
+                  </div>
+                  <div className="meta-col">
+                    <span className="meta-lbl">Order ID</span>
+                    <span className="meta-val highlight num-target">{inspectDoc.orderId || '—'}</span>
+                  </div>
+                  <div className="meta-col">
+                    <span className="meta-lbl">Waybill Tracking</span>
+                    <span className="num-target meta-val">{inspectDoc.tracking || '—'}</span>
+                  </div>
+                </div>
               </div>
 
-              {inspectTab === 'details' ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {/* Meta details grid */}
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                      gap: '12px',
-                      padding: '14px',
-                      borderRadius: 'var(--radius-md)',
-                      backgroundColor: 'var(--bg-app)',
-                      border: '1px solid var(--border-light)'
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
-                        Store / Channel
+              {/* Item Card */}
+              <div>
+                <div className="section-title">
+                  Product Ordered by Customer ({getDisplayLines(inspectDoc).length})
+                </div>
+                {getDisplayLines(inspectDoc)
+                  .slice(0, 2)
+                  .map((line, i) => (
+                    <div
+                      key={line.id || i}
+                      className="item-card"
+                      style={i > 0 ? { marginTop: '8px' } : undefined}
+                    >
+                      <div className="item-name">
+                        {line.productName || line.name || `Item #${i + 1}`}
                       </div>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
-                        {inspectDoc.storeName || 'Official Store'}
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
-                        Order ID
-                      </div>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600, fontFamily: 'monospace' }}>
-                        {inspectDoc.orderId || '—'}
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
-                        Waybill / Tracking
-                      </div>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600, fontFamily: 'monospace' }}>
-                        {inspectDoc.tracking || '—'}
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
-                        Buyer Name / TIN
-                      </div>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
-                        {inspectDoc.buyerName || 'Marketplace Buyer'} {inspectDoc.buyerTin && inspectDoc.buyerTin !== '—' ? `(TIN: ${inspectDoc.buyerTin})` : ''}
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
-                        Date & Time Issued
-                      </div>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
-                        {(() => {
-                          const rawVal = inspectDoc.issuedAt || inspectDoc.lastPrintedAt;
-                          if (!rawVal || rawVal === '—') return '—';
-                          const d = new Date(rawVal);
-                          if (isNaN(d.getTime())) return rawVal;
-                          return `${d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}`;
-                        })()}
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
-                        Station Code
-                      </div>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>
-                        {inspectDoc.lastStationCode || 'PACK-01'}
-                      </div>
-                    </div>
-                  </div>
 
-                  {/* Line Items Table */}
-                  <div>
-                    <h3 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '8px' }}>
-                      Itemized Line Items
-                    </h3>
-                    <div className="table-responsive" style={{ border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)' }}>
-                      <table className="data-table" style={{ fontSize: '0.8rem' }}>
+                      {line.sku && (
+                        <div>
+                          <div className="sku-pill">
+                            SKU: <span className="num-target">{line.sku}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      <table className="item-table">
                         <thead>
                           <tr>
-                            <th>Item Name</th>
-                            <th>SKU</th>
-                            <th>Qty</th>
+                            <th style={{ width: '15%' }}>Qty</th>
                             <th>Unit Price</th>
                             <th>12% VAT</th>
                             <th>Total</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {getDisplayLines(inspectDoc).map((line, lIdx) => (
-                            <tr key={line.id || lIdx}>
-                              <td><strong>{line.productName || line.name || `Item #${lIdx + 1}`}</strong></td>
-                              <td style={{ fontFamily: 'monospace' }}>{line.sku || '—'}</td>
-                              <td>{line.qty || line.quantity || 1}</td>
-                              <td>₱{parseFloat(line.unitPrice || line.unit_price || 0).toFixed(2)}</td>
-                              <td>₱{parseFloat(line.vatAmount || line.vat_amount || 0).toFixed(2)}</td>
-                              <td style={{ fontWeight: 700 }}>₱{parseFloat(line.lineTotal || line.line_total || line.total_amount || 0).toFixed(2)}</td>
-                            </tr>
-                          ))}
+                          <tr>
+                            <td className="num-target" style={{ fontWeight: 700 }}>
+                              {line.qty || line.quantity || 1}
+                            </td>
+                            <td className="num-target">
+                              ₱{parseFloat(line.unitPrice || line.unit_price || 0).toFixed(2)}
+                            </td>
+                            <td className="num-target">
+                              ₱{parseFloat(line.vatAmount || line.vat_amount || 0).toFixed(2)}
+                            </td>
+                            <td className="num-target" style={{ fontWeight: 700 }}>
+                              ₱{parseFloat(line.lineTotal || line.line_total || line.total_amount || 0).toFixed(2)}
+                            </td>
+                          </tr>
                         </tbody>
                       </table>
                     </div>
-                  </div>
+                  ))}
+              </div>
 
-                  {/* Tax Breakdown Totals */}
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-                      gap: '10px',
-                      padding: '12px',
-                      backgroundColor: 'var(--bg-card)',
-                      border: '1px solid var(--border-light)',
-                      borderRadius: 'var(--radius-md)'
-                    }}
-                  >
-                    <div>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Vatable Sales:</span>
-                      <div style={{ fontWeight: 700 }}>₱{inspectDoc.vatableSales || '0.00'}</div>
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>12% Output VAT:</span>
-                      <div style={{ fontWeight: 700, color: 'var(--accent-emerald)' }}>₱{inspectDoc.vatAmount || '0.00'}</div>
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Discount:</span>
-                      <div style={{ fontWeight: 700 }}>-₱{inspectDoc.discountAmount || '0.00'}</div>
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Total Invoiced:</span>
-                      <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--primary)' }}>
-                        ₱{parseFloat(inspectDoc.totalAmount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
-                      </div>
-                    </div>
+              {/* Financial Tax Breakdown */}
+              <div>
+                <div className="section-title">Tax Valuation &amp; Settlement</div>
+                <div className="totals-box">
+                  <div className="totals-row discount">
+                    <span>Discount / Voucher</span>
+                    <span className="num-target">-₱{inspectDoc.discountAmount || '0.00'}</span>
                   </div>
-                </div>
-              ) : (
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                      Payload submitted for BIR EIS verification compliance:
+                  <div className="totals-row">
+                    <span>VATable Sales (Net of VAT)</span>
+                    <span className="num-target">₱{inspectDoc.vatableSales || '0.00'}</span>
+                  </div>
+                  <div className="totals-row">
+                    <span>12% VAT Amount</span>
+                    <span className="num-target">₱{inspectDoc.vatAmount || '0.00'}</span>
+                  </div>
+                  <div className="totals-row grand-total">
+                    <span>Total Amount (VAT Inc.)</span>
+                    <span className="total-amount-display num-target">
+                      ₱{parseFloat(inspectDoc.totalAmount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
                     </span>
-                    {eisJsonData && !eisJsonData.error && (
-                      <button
-                        type="button"
-                        className="btn btn-outline"
-                        style={{ fontSize: '0.75rem', padding: '4px 10px' }}
-                        onClick={() => {
-                          navigator.clipboard?.writeText(JSON.stringify(eisJsonData, null, 2));
-                          setCopiedEis(true);
-                          setTimeout(() => setCopiedEis(false), 2000);
-                        }}
-                      >
-                        {copiedEis ? <Check size={13} color="var(--accent-emerald)" /> : <Copy size={13} />}
-                        {copiedEis ? 'Copied' : 'Copy JSON'}
-                      </button>
-                    )}
                   </div>
-
-                  {eisJsonLoading ? (
-                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                      <RefreshCw size={20} className="spinner" style={{ marginBottom: '8px' }} />
-                      <div>Loading BIR EIS JSON preview...</div>
-                    </div>
-                  ) : (
-                    <pre
-                      style={{
-                        backgroundColor: '#0f172a',
-                        color: '#38bdf8',
-                        padding: '14px',
-                        borderRadius: 'var(--radius-sm)',
-                        fontSize: '0.78rem',
-                        fontFamily: 'monospace',
-                        maxHeight: '340px',
-                        overflow: 'auto',
-                        border: '1px solid var(--border-light)'
-                      }}
-                    >
-                      {JSON.stringify(eisJsonData || inspectDoc.raw || inspectDoc, null, 2)}
-                    </pre>
-                  )}
                 </div>
-              )}
+              </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '18px', paddingTop: '14px', borderTop: '1px solid var(--border-light)' }}>
+            {/* Sticky Footer */}
+            <div className="modal-footer">
               <button
                 type="button"
-                className="btn btn-outline"
-                onClick={() => handleDownloadSoftCopy(inspectDoc)}
+                className="modal-btn modal-btn-secondary"
+                onClick={() => setInspectDoc(null)}
               >
-                <Download size={14} /> Soft Copy (PNG)
+                Close
               </button>
               <button
                 type="button"
-                className="btn btn-primary"
+                className="modal-btn modal-btn-primary"
                 onClick={() => {
                   const target = inspectDoc;
                   setInspectDoc(null);
                   openReprintModal(target);
                 }}
               >
-                <Printer size={14} /> Print Waybill
+                Print E-Invoice Waybill
               </button>
             </div>
-          </div>
+          </aside>
         </div>
       )}
 

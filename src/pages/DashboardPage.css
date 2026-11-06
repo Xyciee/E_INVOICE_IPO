@@ -1,7 +1,7 @@
 .dash-modern {
-    --d-text: #15233b;
-    --d-muted: #78859b;
-    --d-line: #e7ebf2;
+    --d-text: var(--text-main);
+    --d-muted: var(--text-muted);
+    --d-line: var(--border-light);
     --d-blue: #496bf0;
     color: var(--d-text);
     padding: 0;
@@ -300,7 +300,7 @@
 }
 
 .dash-filters {
-    background: white;
+    background: var(--bg-surface);
     border: 1px solid var(--d-line);
     border-radius: 11px;
     padding: 8px 14px;
@@ -325,11 +325,12 @@
 
 .dash-filter-heading strong {
     font-size: 11.5px;
+    color: var(--text-main);
 }
 
 .dash-filter-heading span {
     font-size: 11px;
-    color: #9aa5b7;
+    color: var(--text-muted);
 }
 
 .dash-filter-fields {
@@ -344,7 +345,7 @@
     gap: 6px;
     font-size: 11px;
     font-weight: 700;
-    color: #77859b;
+    color: var(--text-muted);
 }
 
 .dash-filter-fields select {
@@ -352,9 +353,9 @@
     max-width: 190px;
     border-radius: 7px;
     padding: 5px 24px 5px 9px;
-    color: #2a3a55;
-    border: 1px solid #e3e8f2;
-    background: #f8faff;
+    color: var(--text-main);
+    border: 1px solid var(--border-light);
+    background: var(--bg-app);
     font-size: 11.5px;
     outline-color: #5876e9;
     cursor: pointer;
@@ -386,9 +387,9 @@
 .dash-stat,
 .dash-panel {
     border: 1px solid var(--d-line);
-    background: white;
+    background: var(--bg-surface);
     border-radius: 13px;
-    box-shadow: 0 3px 12px #172b5006;
+    box-shadow: var(--shadow-xs);
 }
 
 .dash-stat {
@@ -401,7 +402,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    color: #7a889d;
+    color: var(--text-muted);
     font-size: 11px;
     font-weight: 700;
 }
@@ -425,24 +426,24 @@
 
 .dash-stat-icon.blue,
 .dash-small-icon.blue {
-    background: #eaf0ff;
+    background: rgba(59, 130, 246, 0.14);
     color: #4a6beb;
 }
 
 .dash-stat-icon.amber,
 .dash-small-icon.amber {
-    background: #fff4df;
+    background: rgba(245, 158, 11, 0.14);
     color: #d99421;
 }
 
 .dash-stat-icon.green,
 .dash-small-icon.green {
-    background: #e3f8ed;
+    background: rgba(16, 185, 129, 0.14);
     color: #2aab72;
 }
 
 .dash-stat-icon.violet {
-    background: #f0edff;
+    background: rgba(139, 92, 246, 0.14);
     color: #8265df;
 }
 
@@ -456,18 +457,19 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    color: var(--text-main);
 }
 
 .dash-stat-hint {
     font-size: 10.5px;
-    color: #96a2b4;
+    color: var(--text-muted);
 }
 
 .dash-skeleton {
     display: block;
     height: 22px;
     width: 65%;
-    background: linear-gradient(90deg, #f1f3f8, #e8ecf6, #f1f3f8);
+    background: var(--bg-app);
     border-radius: 5px;
     animation: dash-pulse 1.6s infinite;
 }
@@ -494,7 +496,7 @@
     font-size: 9.5px;
     letter-spacing: 0.9px;
     font-weight: 800;
-    color: #7789aa;
+    color: var(--text-muted);
 }
 
 .dash-panel h2 {
@@ -502,11 +504,12 @@
     letter-spacing: -.25px;
     margin: 2px 0 3px;
     font-weight: 800;
+    color: var(--text-main);
 }
 
 .dash-panel-header p {
     font-size: 10.5px;
-    color: #96a0b1;
+    color: var(--text-muted);
     margin: 0;
 }
 
@@ -514,7 +517,7 @@
     width: 28px;
     height: 28px;
     border-radius: 8px;
-    background: #f0f3ff;
+    background: rgba(59, 130, 246, 0.14);
     display: grid;
     place-items: center;
     color: #5a73d9;
@@ -527,15 +530,16 @@
 
 .dash-segment {
     display: flex;
-    background: #f3f5fa;
+    background: var(--bg-app);
     padding: 3px;
     gap: 2px;
     border-radius: 8px;
+    border: 1px solid var(--border-light);
 }
 
 .dash-segment button {
     background: transparent;
-    color: #8090a5;
+    color: var(--text-muted);
     border: 0;
     font-size: 10.5px;
     padding: 5px 9px;
@@ -546,15 +550,15 @@
 }
 
 .dash-segment button.active {
-    color: #3859d2;
-    background: white;
-    box-shadow: 0 2px 5px #243b6516;
+    color: var(--primary);
+    background: var(--bg-surface);
+    box-shadow: var(--shadow-xs);
 }
 
 .dash-revenue-kpis {
     display: flex;
     gap: 24px;
-    border-bottom: 1px solid #eef1f7;
+    border-bottom: 1px solid var(--border-light);
     padding: 10px 0 8px;
 }
 
@@ -566,18 +570,19 @@
 
 .dash-revenue-kpis span {
     font-size: 10.5px;
-    color: #8895a9;
+    color: var(--text-muted);
 }
 
 .dash-revenue-kpis strong {
     font-size: clamp(15px, 1.3vw, 19px);
     font-weight: 800;
     letter-spacing: -.35px;
+    color: var(--text-main);
 }
 
 .dash-revenue-kpis>div:nth-child(2) strong {
     font-size: 16px;
-    color: #6b7890;
+    color: var(--text-muted);
 }
 
 .dash-chart-shell {
@@ -589,12 +594,12 @@
     justify-content: space-between;
     gap: 10px;
     font-size: 10.5px;
-    color: #98a3b2;
+    color: var(--text-muted);
     margin-bottom: 4px;
 }
 
 .dash-chart-summary>span:first-child {
-    color: #4f6386;
+    color: var(--text-main);
     font-weight: 600;
 }
 
@@ -677,7 +682,7 @@
 .dash-donut>div {
     height: 80px;
     width: 80px;
-    background: white;
+    background: var(--bg-surface);
     border-radius: 50%;
     display: flex;
     flex-direction: column;
@@ -689,11 +694,12 @@
 .dash-donut strong {
     font-size: 21px;
     letter-spacing: -0.8px;
+    color: var(--text-main);
 }
 
 .dash-donut span {
     font-size: 10px;
-    color: #99a5b6;
+    color: var(--text-muted);
 }
 
 .dash-market-list {
@@ -710,21 +716,21 @@
     font-size: 11.5px;
 }
 
-.dash-market-row>span {
+.dash-market-row>span:not(.mp-badge) {
     display: flex;
     align-items: center;
     gap: 7px;
-    color: #697a93;
+    color: var(--text-muted);
 }
 
 .dash-market-row strong {
-    color: #283b59;
+    color: var(--text-main);
 }
 
 .dash-market-row small {
     font-size: 10.5px;
     font-weight: 500;
-    color: #a2acbb;
+    color: var(--text-muted);
     margin-left: 6px;
 }
 
@@ -740,7 +746,7 @@
 }
 
 .dot-1 {
-    background: #202936;
+    background: #3b82f6;
 }
 
 .dot-2 {
@@ -757,7 +763,7 @@
     gap: 10px;
     margin-top: 12px;
     font-size: 11.5px;
-    color: #718099;
+    color: var(--text-muted);
 }
 
 .dash-progress-heading strong {
@@ -767,7 +773,8 @@
 .dash-progress-track {
     height: 8px;
     margin-top: 7px;
-    background: #edf1f8;
+    background: var(--bg-app);
+    border: 1px solid var(--border-light);
     border-radius: 20px;
     overflow: hidden;
 }
@@ -789,13 +796,13 @@
     display: flex;
     align-items: center;
     gap: 9px;
-    color: #687890;
+    color: var(--text-muted);
     font-size: 11.5px;
 }
 
 .dash-fulfillment-list strong {
     margin-left: auto;
-    color: #273853;
+    color: var(--text-main);
     font-size: 12px;
 }
 
@@ -810,7 +817,7 @@
 .dash-footnote {
     font-size: 9.5px;
     line-height: 1.4;
-    color: #9ca9ba;
+    color: var(--text-muted);
     margin: 10px 0 0;
 }
 
@@ -825,7 +832,7 @@
     align-items: center;
     gap: 9px;
     padding: 6px 0;
-    border-bottom: 1px solid #f0f2f7;
+    border-bottom: 1px solid var(--border-light);
 }
 
 .dash-activity-item:last-child {
@@ -835,7 +842,7 @@
 .dash-activity-symbol {
     width: 28px;
     height: 28px;
-    background: #edf2ff;
+    background: rgba(59, 130, 246, 0.14);
     border-radius: 8px;
     display: grid;
     place-items: center;
@@ -856,11 +863,12 @@
     text-overflow: ellipsis;
     overflow: hidden;
     max-width: 300px;
+    color: var(--text-main);
 }
 
 .dash-activity-item>div span {
     font-size: 10px;
-    color: #9aa5b7;
+    color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -870,14 +878,14 @@
     margin-left: auto;
     font-size: 10px;
     white-space: nowrap;
-    color: #9ba6b6;
+    color: var(--text-muted);
 }
 
 .dash-empty {
     padding: 16px;
     text-align: center;
     font-size: 11.5px;
-    color: #99a7b9;
+    color: var(--text-muted);
 }
 
 .dash-heatmap-panel {
@@ -899,7 +907,7 @@
     height: 100%;
     background: rgba(55, 160, 119, var(--heat));
     border-radius: 2px;
-    border: 1px solid #edf0f4;
+    border: 1px solid var(--border-light);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -929,7 +937,7 @@
 }
 
 .dash-heatmap-cell[style*="--heat: 0;"] {
-    background: #f0f3f7;
+    background: var(--bg-app);
 }
 
 .dash-heatmap-key {
@@ -937,7 +945,7 @@
     justify-content: space-between;
     align-items: center;
     margin-top: 8px;
-    color: #99a4b6;
+    color: var(--text-muted);
     font-size: 10px;
 }
 
@@ -955,7 +963,8 @@
 }
 
 .dash-key-zero {
-    background: #f0f3f7;
+    background: var(--bg-app);
+    border: 1px solid var(--border-light);
 }
 
 .dash-key-mid {
