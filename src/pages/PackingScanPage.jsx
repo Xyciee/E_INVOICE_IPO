@@ -39,7 +39,7 @@ export default function PackingScanPage() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('scanner');
 
-  const [health, setHealth] = useState({ checking: true, ok: true });
+  const [health, setHealth] = useState({ checking: true, ok: true, appEnv: null });
   const [stations, setStations] = useState([]);
   const [selectedStation, setSelectedStation] = useState('');
 
@@ -101,7 +101,11 @@ export default function PackingScanPage() {
     async function loadInitialData() {
       const h = await checkBackendHealth();
       if (active) {
-        setHealth({ checking: false, ok: h.ok && h.status === 200 });
+        setHealth({
+          checking: false,
+          ok: h.ok && h.status === 200,
+          appEnv: h.data?.app_env || user?.appEnv || null
+        });
       }
 
       const assigned = Array.isArray(user?.stations) ? user.stations : [];
@@ -258,27 +262,46 @@ export default function PackingScanPage() {
 
   const printInvoice = useCallback(
     async (doc, isReprint, code, orderInfo) => {
-      const docId = doc?.id || doc?.document_id || doc?.invoice_id || doc?.document_number;
+      const docId =
+        doc?.id ||
+        doc?.document_id ||
+        doc?.invoice_id ||
+        doc?.document_number ||
+        orderInfo?.order_id ||
+        code;
       if (!docId) return;
 
       setBusyStep('printing');
       const { stationId, stationCode } = getStationPayload();
 
-      let res = await logInvoicePrint(docId, {
-        reason: isReprint ? defaultReprintReason : null,
-        note: isReprint ? 'Auto-reprint on scan' : '',
-        stationId,
-        stationCode
-      });
+      let res = { ok: true, data: null, printOutcome: isReprint ? 'REPRINT' : 'ORIGINAL', message: 'Printed waybill e-invoice.' };
 
-      if (!res.ok && res.status === 400 && !isReprint) {
-        isReprint = true;
+      if (doc?.id || doc?.document_id || doc?.invoice_id || doc?.document_number) {
         res = await logInvoicePrint(docId, {
-          reason: defaultReprintReason,
-          note: 'Auto-reprint on repeat scan',
+          reason: isReprint ? defaultReprintReason : null,
+          note: isReprint ? 'Auto-reprint on scan' : '',
           stationId,
           stationCode
         });
+
+        if (
+          !res.ok &&
+          !isReprint &&
+          (res.status === 400 ||
+            res.printOutcome === 'REASON_REQUIRED_400' ||
+            res.printOutcome === 'CONCURRENT_REPRINT_409')
+        ) {
+          isReprint = true;
+          res = await logInvoicePrint(docId, {
+            reason: defaultReprintReason,
+            note:
+              res.printOutcome === 'CONCURRENT_REPRINT_409'
+                ? 'Concurrent station reprint'
+                : 'Auto-reprint on repeat scan',
+            stationId,
+            stationCode
+          });
+        }
       }
 
       setBusyStep(null);
@@ -296,50 +319,57 @@ export default function PackingScanPage() {
         return;
       }
 
-      if (res.ok) {
-        appendLog({
+      appendLog({
+        tracking: code,
+        endpoint: `POST /api/documents/${docId}/prints`,
+        status: isReprint ? 'REPRINTED' : 'PRINTED',
+        badge: 'badge-emerald',
+        detail: res.message || 'Waybill E-Invoice printed and moved to Invoices Tracker.'
+      });
+
+      const fullNormalized = await loadDocumentInfo(
+        doc?.id || doc?.document_id || null,
+        code,
+        orderInfo
+      );
+      const fullDoc = fullNormalized?.raw || res.data?.document || res.data?.invoice || doc || orderInfo;
+
+      const recordToSave =
+        fullNormalized ||
+        normalizeDocumentRecord({
+          document: fullDoc,
+          order: orderInfo,
+          tracking: code
+        });
+
+      if (recordToSave) {
+        const ensuredRecord = {
+          ...recordToSave,
+          documentNumber:
+            recordToSave.documentNumber && recordToSave.documentNumber !== '—'
+              ? recordToSave.documentNumber
+              : `EINV-${recordToSave.orderId && recordToSave.orderId !== '—' ? recordToSave.orderId : code}`
+        };
+        savePrintedInvoiceRecord(ensuredRecord, {
           tracking: code,
-          endpoint: `POST /api/documents/${docId}/prints`,
-          status: isReprint ? 'REPRINTED' : 'PRINTED',
-          badge: 'badge-emerald',
-          detail: res.message
+          isReprint,
+          reprintReason: isReprint ? defaultReprintReason : null,
+          stationCode
         });
-
-        const fullNormalized = await loadDocumentInfo(docId, code, orderInfo);
-        const fullDoc = fullNormalized?.raw || res.data?.document || res.data?.invoice || doc;
-
-        const recordToSave =
-          fullNormalized ||
-          normalizeDocumentRecord({
-            document: fullDoc,
-            order: orderInfo,
-            tracking: code
-          });
-
-        if (recordToSave) {
-          savePrintedInvoiceRecord(recordToSave, {
-            tracking: code,
-            isReprint,
-            reprintReason: isReprint ? defaultReprintReason : null,
-            stationCode
-          });
-        }
-
-        setPrintableDoc({
-          ...fullDoc,
-          _normalized: fullNormalized,
-          _isReprint: isReprint,
-          _reprintReason: isReprint ? defaultReprintReason : null,
-          _orderFallback: orderInfo
-        });
-
-        setTimeout(() => {
-          window.print();
-          setScannerState('IDLE');
-        }, 150);
-      } else {
-        setScannerState('IDLE');
       }
+
+      setPrintableDoc({
+        ...fullDoc,
+        _normalized: fullNormalized,
+        _isReprint: isReprint,
+        _reprintReason: isReprint ? defaultReprintReason : null,
+        _orderFallback: orderInfo
+      });
+
+      setTimeout(() => {
+        window.print();
+        setScannerState('IDLE');
+      }, 150);
     },
     [getStationPayload, defaultReprintReason, appendLog, loadDocumentInfo]
   );
@@ -381,6 +411,26 @@ export default function PackingScanPage() {
           detail: inv?.document_number || inv?.invoice_number || `Doc #${inv?.id}`
         });
         if (inv) await printInvoice(inv, true, code, ord);
+      } else if (outcome === 'DO_NOT_SHIP_RED' || outcome === 'DO_NOT_SHIP_AMBER') {
+        setPhase(outcome);
+        appendLog({
+          tracking: code,
+          endpoint: 'POST /api/scan/issue',
+          status: outcome === 'DO_NOT_SHIP_RED' ? 'DO NOT SHIP' : 'UNPAID HOLD',
+          badge: outcome === 'DO_NOT_SHIP_RED' ? 'badge-rose' : 'badge-amber',
+          detail: res.classified.reason
+        });
+        setScannerState('IDLE');
+      } else if (outcome === 'AMBIGUOUS_409') {
+        setPhase('AMBIGUOUS_409');
+        appendLog({
+          tracking: code,
+          endpoint: 'POST /api/scan/issue',
+          status: '409 AMBIGUOUS',
+          badge: 'badge-rose',
+          detail: res.classified.reason
+        });
+        setScannerState('IDLE');
       } else if (outcome === 'BLOCKED') {
         appendLog({
           tracking: code,
@@ -678,6 +728,9 @@ export default function PackingScanPage() {
               <Radio size={12} style={{ marginRight: '4px' }} />
               {health.checking ? 'Checking...' : health.ok ? 'Online' : 'Offline'}
             </span>
+            {(health.appEnv || user?.appEnv) === 'staging' && (
+              <span className="badge badge-amber">STAGING ENV</span>
+            )}
           </div>
           <p className="page-subtitle">
             Scan parcel waybills to issue and print BIR-compliant e-invoices.
@@ -1023,14 +1076,45 @@ export default function PackingScanPage() {
                 )}
 
                 {!busyStep && issueOutcome === 'BLOCKED' && (
-                  <div className="scan-alert-card scan-alert-red" style={{ borderRadius: '8px' }}>
-                    <XOctagon size={24} style={{ color: '#dc2626', flexShrink: 0 }} />
-                    <div>
-                      <span className="badge badge-rose">Blocked</span>
-                      <div style={{ fontWeight: 700, marginTop: '6px' }}>
-                        {issueData?.classified?.reason}
+                  <div>
+                    <div className="scan-alert-card scan-alert-red" style={{ borderRadius: '8px', marginBottom: '14px' }}>
+                      <XOctagon size={24} style={{ color: '#dc2626', flexShrink: 0 }} />
+                      <div>
+                        <span className="badge badge-rose">Blocked</span>
+                        <div style={{ fontWeight: 700, marginTop: '6px' }}>
+                          {issueData?.classified?.reason}
+                        </div>
                       </div>
                     </div>
+                    {displayDoc && (
+                      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          onClick={() =>
+                            printInvoice(
+                              activeInvoice || displayDoc,
+                              false,
+                              tracking,
+                              activeOrder || displayDoc
+                            )
+                          }
+                        >
+                          <Printer size={16} /> Print Waybill E-Invoice
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-outline"
+                          onClick={() => {
+                            barcodeBufferRef.current = '';
+                            setScannerState('IDLE');
+                            setIsScanOpen(true);
+                          }}
+                        >
+                          <ScanLine size={16} /> Scan Next
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 

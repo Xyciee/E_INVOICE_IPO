@@ -25,6 +25,8 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/apiClient';
 import {
+  fetchPrintedInvoices,
+  fetchDocumentsRegister,
   searchDocuments,
   fetchDocumentDetails,
   fetchOrderDraft,
@@ -34,7 +36,8 @@ import {
   normalizeReprintReasons,
   getPrintedInvoiceRecords,
   savePrintedInvoiceRecord,
-  downloadWaybillSoftCopy
+  downloadWaybillSoftCopy,
+  getExportDownloadUrl
 } from '../services/scanService';
 import WaybillTicket from '../components/WaybillTicket';
 import './pages.css';
@@ -71,38 +74,54 @@ function mergePrintedAndApiDocs(localPrinted, apiDocs) {
     });
   }
 
-  // 2. Enhance with local print history (thermal station reprints)
-  for (const item of localPrinted) {
-    if (!item) continue;
-    const matchKey = Array.from(map.keys()).find((k) => {
-      const existing = map.get(k);
-      return (
-        (item.id && existing.id && String(item.id) === String(existing.id)) ||
-        (item.documentNumber &&
-          item.documentNumber !== '—' &&
-          existing.documentNumber === item.documentNumber) ||
-        (item.orderId &&
-          item.orderId !== '—' &&
-          existing.orderId === item.orderId)
-      );
-    });
+  for (const doc of apiDocs) {
+    if (!doc) continue;
+    const matchKey =
+      Array.from(map.keys()).find((k) => {
+        const existing = map.get(k);
+        return (
+          (doc.id && existing.id && String(doc.id) === String(existing.id)) ||
+          (doc.documentNumber &&
+            doc.documentNumber !== '—' &&
+            existing.documentNumber === doc.documentNumber)
+        );
+      }) || String(doc.id || doc.documentNumber || doc.orderId);
 
-    if (matchKey) {
-      const existing = map.get(matchKey);
+    const existing = map.get(matchKey);
+    const apiPrintCount = Math.max(
+      Number(doc.printCount || 0),
+      Array.isArray(doc.prints) ? doc.prints.length : 0
+    );
+
+    if (existing) {
+      const mergedCount = Math.max(Number(existing.printCount || 1), apiPrintCount, 1);
       map.set(matchKey, {
         ...existing,
-        ...item,
-        lines: item.lines?.length ? item.lines : existing.lines,
-        printCount: Math.max(Number(item.printCount || 1), Number(existing.printCount || 1)),
-        isReprint: Boolean(item.isReprint || existing.isReprint)
+        lines: existing.lines?.length ? existing.lines : doc.lines,
+        prints: doc.prints?.length ? doc.prints : existing.prints,
+        printCount: mergedCount,
+        reprintCount: Math.max(Number(doc.reprintCount || 0), mergedCount - 1, 0),
+        isReprint: Boolean(doc.isReprint || existing.isReprint || mergedCount > 1),
+        lastPrintedAt:
+          doc.lastPrintedAt ||
+          existing.lastPrintedAt ||
+          doc.prints?.[0]?.printed_at ||
+          doc.issuedAt ||
+          '—',
+        lastReprintReason: doc.lastReprintReason || existing.lastReprintReason || null
       });
-    } else if (apiDocs.length === 0) {
-      // If backend API documents are empty or unavailable, show local station records as fallback
-      const key = String(item.id || item.documentNumber || item.orderId || Math.random());
-      map.set(key, {
-        ...item,
-        printCount: Number(item.printCount || 1),
-        isReprint: Boolean(item.isReprint)
+    } else {
+      map.set(matchKey, {
+        ...doc,
+        lastPrintedAt:
+          doc.lastPrintedAt ||
+          doc.prints?.[0]?.printed_at ||
+          doc.prints?.[0]?.created_at ||
+          doc.issuedAt ||
+          '—',
+        printCount: Math.max(apiPrintCount, 1),
+        reprintCount: Math.max(Number(doc.reprintCount || 0), apiPrintCount - 1, 0),
+        isReprint: Boolean(doc.isReprint || apiPrintCount > 1)
       });
     }
   }
@@ -200,60 +219,40 @@ export default function InvoicesPage() {
   // Fetch all documents from einvoice.ipolymersolutionscorp.com/api/documents
   const loadAllDocuments = useCallback(async (q = '') => {
     setLoading(true);
-    setApiError(null);
-    const cleanQuery = q.trim();
+    const localList = getPrintedInvoiceRecords();
+    const trimmed = q.trim();
 
-    try {
-      let rawDocs = [];
-      let nextUrl = null;
+    let apiNormalized = [];
+    const printsRes = await fetchPrintedInvoices(trimmed ? { q: trimmed } : {});
+    if (printsRes.ok && printsRes.data) {
+      const rawList = extractDocumentList(printsRes.data);
+      apiNormalized = rawList.map(normalizeDocumentRecord).filter(Boolean);
+    }
 
-      // 1. Fetch from /api/documents (backend einvoice.ipolymersolutionscorp.com/api/documents)
-      const queryObj = cleanQuery ? { q: cleanQuery } : {};
-      const docsRes = await api.get('/api/documents', queryObj);
-
-      if (docsRes.ok && docsRes.data) {
-        const batch = extractDocumentList(docsRes.data);
-        rawDocs.push(...batch);
-        nextUrl = docsRes.data?.next || null;
-      } else if (!docsRes.ok) {
-        // Fallback with searchDocuments helper
-        const scanRes = await searchDocuments(cleanQuery);
-        if (scanRes.ok && scanRes.data) {
-          rawDocs.push(...extractDocumentList(scanRes.data));
-          nextUrl = scanRes.data?.next || null;
-        } else {
-          setApiError({
-            status: docsRes.status || scanRes.status || 0,
-            message: docsRes.data?.detail || docsRes.statusText || 'Unable to fetch documents from einvoice.ipolymersolutionscorp.com/api/documents'
-          });
-        }
+    if (apiNormalized.length === 0) {
+      const fallbackRes = trimmed
+        ? await searchDocuments(trimmed)
+        : await fetchDocumentsRegister({ printed: 1 });
+      if (fallbackRes.ok && fallbackRes.data) {
+        const rawList = extractDocumentList(fallbackRes.data);
+        apiNormalized = rawList.map(normalizeDocumentRecord).filter(Boolean);
       }
+    }
 
-      // If paginated by Django REST Framework, compile subsequent pages to list ALL documents
-      let page = 1;
-      while (nextUrl && page < 20) {
-        page++;
-        try {
-          const u = new URL(nextUrl, 'https://einvoice.ipolymersolutionscorp.com');
-          const pageRes = await api.get(`/api/documents?${u.searchParams.toString()}`);
-          if (pageRes.ok && pageRes.data) {
-            const pageDocs = extractDocumentList(pageRes.data);
-            if (pageDocs.length === 0) break;
-            rawDocs.push(...pageDocs);
-            nextUrl = pageRes.data?.next || null;
-          } else {
-            break;
-          }
-        } catch {
-          break;
-        }
-      }
-
-      const normalizedApi = rawDocs.map(normalizeDocumentRecord).filter(Boolean);
-      const localList = getPrintedInvoiceRecords();
-      const merged = mergePrintedAndApiDocs(localList, normalizedApi);
-
-      setInvoices(merged);
+    const merged = mergePrintedAndApiDocs(
+      trimmed
+        ? localList.filter((item) => {
+            const term = trimmed.toLowerCase();
+            return (
+              String(item.documentNumber || '').toLowerCase().includes(term) ||
+              String(item.orderId || '').toLowerCase().includes(term) ||
+              String(item.tracking || '').toLowerCase().includes(term) ||
+              String(item.buyerName || '').toLowerCase().includes(term)
+            );
+          })
+        : localList,
+      apiNormalized
+    );
 
       // 2. Fetch Pre-Pack queue for staging reference
       const preRes = await api.get('/api/prepack');
@@ -276,36 +275,44 @@ export default function InvoicesPage() {
     loadAllDocuments('');
   }, [loadAllDocuments]);
 
-  // Open Document Inspection Modal
-  const openInspectModal = async (inv) => {
-    setInspectDoc(inv);
-    setInspectTab('details');
-    setEisJsonData(null);
-    setCopiedEis(false);
+    async function init() {
+      const localList = getPrintedInvoiceRecords();
+      let apiNormalized = [];
 
-    const hydrated = await hydrateFullDoc(inv);
-    if (hydrated) {
-      setInspectDoc(hydrated);
-    }
-  };
+      const printsRes = await fetchPrintedInvoices({});
+      if (!active) return;
 
-  // Fetch EIS JSON on demand
-  const loadEisJson = async (docId) => {
-    if (!docId) return;
-    setEisJsonLoading(true);
-    try {
-      const res = await api.get(`/api/documents/${encodeURIComponent(docId)}/eis-json`);
-      if (res.ok && res.data) {
-        setEisJsonData(res.data);
-      } else {
-        setEisJsonData({ error: 'No EIS JSON payload generated for this record.' });
+      if (printsRes.ok && printsRes.data) {
+        const rawList = extractDocumentList(printsRes.data);
+        apiNormalized = rawList.map(normalizeDocumentRecord).filter(Boolean);
       }
-    } catch (err) {
-      setEisJsonData({ error: err.message });
-    } finally {
-      setEisJsonLoading(false);
+
+      if (apiNormalized.length === 0) {
+        const regRes = await fetchDocumentsRegister({ printed: 1 });
+        if (!active) return;
+        if (regRes.ok && regRes.data) {
+          const rawList = extractDocumentList(regRes.data);
+          apiNormalized = rawList.map(normalizeDocumentRecord).filter(Boolean);
+        }
+      }
+
+      const merged = mergePrintedAndApiDocs(localList, apiNormalized);
+      setInvoices(merged);
+      setLoading(false);
     }
-  };
+
+    init();
+
+    const handlePrintedUpdate = () => {
+      setInvoices((prev) => mergePrintedAndApiDocs(getPrintedInvoiceRecords(), prev));
+    };
+
+    window.addEventListener('bir-printed-invoices-updated', handlePrintedUpdate);
+    return () => {
+      active = false;
+      window.removeEventListener('bir-printed-invoices-updated', handlePrintedUpdate);
+    };
+  }, []);
 
   const openReprintModal = async (inv) => {
     setSelectedReason(reprintReasons[0]?.code || 'damaged');
@@ -479,6 +486,24 @@ export default function InvoicesPage() {
           <h1 className="page-title">E-Invoice Documents & Ledger Tracker</h1>
         </div>
         <div className="page-actions">
+          <a
+            href={getExportDownloadUrl('/api/documents', { printed: 1 }, 'csv')}
+            target="_blank"
+            rel="noreferrer"
+            className="btn btn-outline"
+            style={{ textDecoration: 'none' }}
+          >
+            <Download size={15} /> CSV Export
+          </a>
+          <a
+            href={getExportDownloadUrl('/api/documents', { printed: 1 }, 'xlsx')}
+            target="_blank"
+            rel="noreferrer"
+            className="btn btn-outline"
+            style={{ textDecoration: 'none' }}
+          >
+            <Download size={15} /> Excel Export
+          </a>
           <button
             type="button"
             className="btn btn-outline"
@@ -814,10 +839,13 @@ export default function InvoicesPage() {
                       >
                         {inv.status || 'BIR Stamped'}
                       </span>
-                      {inv.isReprint && (
-                        <span className="badge badge-amber" style={{ marginLeft: '4px', fontSize: '0.68rem' }}>
-
-                        </span>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '3px' }}>
+                        {inv.printCount || 1}x Printed
+                      </div>
+                      {inv.lastReprintReason && (
+                        <div style={{ fontSize: '0.68rem', color: '#f59e0b', marginTop: '2px' }}>
+                          Reason: {inv.lastReprintReason}
+                        </div>
                       )}
                     </td>
                     <td>

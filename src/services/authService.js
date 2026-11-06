@@ -78,7 +78,9 @@ function formatUserProfile(profile, fallbackIdentifier) {
     department: profile?.department || 'Operations',
     stations,
     assignedStations: stations,
-    reprintReasons
+    reprintReasons,
+    appEnv: profile?.app_env || 'production',
+    mustChangePassword: Boolean(profile?.must_change_password)
   };
 }
 
