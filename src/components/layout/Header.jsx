@@ -1,32 +1,22 @@
 import React, { useState } from 'react';
 import {
-  Menu,
   Search,
   Bell,
   Sun,
   Moon,
   ChevronRight,
-  User,
   CheckCircle2,
   Clock,
-  ExternalLink,
-  LogOut,
-  ChevronDown,
-  Shield
+  ExternalLink
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
 
 export default function Header({
   activePage,
-  onToggleSidebar,
-  onToggleMobileSidebar,
   theme,
   onToggleTheme
 }) {
-  const { user, logout } = useAuth();
   const [showNotifications, setShowNotifications] = useState(false);
   const [notificationsRead, setNotificationsRead] = useState(false);
-  const [showProfileMenu, setShowProfileMenu] = useState(false);
 
   const notifications = [
     {
@@ -52,21 +42,10 @@ export default function Header({
     }
   ];
 
-  const handleToggle = onToggleSidebar || onToggleMobileSidebar;
-
   return (
     <header className="admin-header">
-      {/* Left: Sidebar Toggle & Breadcrumbs */}
+      {/* Left: Breadcrumbs */}
       <div className="header-left">
-        <button
-          className="sidebar-toggle-btn"
-          onClick={handleToggle}
-          aria-label="Toggle Sidebar Navigation"
-          title="Toggle Navigation (Menu)"
-        >
-          <Menu size={20} />
-        </button>
-
         <div className="breadcrumbs">
           <span className="breadcrumb-root">Portal</span>
           <ChevronRight size={14} className="breadcrumb-separator" />
@@ -109,7 +88,6 @@ export default function Header({
             className="header-action-btn"
             onClick={() => {
               setShowNotifications(!showNotifications);
-              setShowProfileMenu(false);
               if (!notificationsRead) setNotificationsRead(true);
             }}
             aria-label="Notifications"

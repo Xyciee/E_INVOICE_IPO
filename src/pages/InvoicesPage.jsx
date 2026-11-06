@@ -14,6 +14,7 @@ import {
   Eye,
   Copy,
   Check,
+  ChevronDown,
   ShieldCheck
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -134,6 +135,7 @@ export default function InvoicesPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [notificationMsg, setNotificationMsg] = useState('');
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   // Reprint / Print Side Modal
   const [reprintModalDoc, setReprintModalDoc] = useState(null);
@@ -275,14 +277,14 @@ export default function InvoicesPage() {
       const apiNormalized = rawDocs.map(normalizeDocumentRecord).filter(Boolean);
       const filteredLocal = trimmed
         ? localList.filter((item) => {
-            const term = trimmed.toLowerCase();
-            return (
-              String(item.documentNumber || '').toLowerCase().includes(term) ||
-              String(item.orderId || '').toLowerCase().includes(term) ||
-              String(item.tracking || '').toLowerCase().includes(term) ||
-              String(item.buyerName || '').toLowerCase().includes(term)
-            );
-          })
+          const term = trimmed.toLowerCase();
+          return (
+            String(item.documentNumber || '').toLowerCase().includes(term) ||
+            String(item.orderId || '').toLowerCase().includes(term) ||
+            String(item.tracking || '').toLowerCase().includes(term) ||
+            String(item.buyerName || '').toLowerCase().includes(term)
+          );
+        })
         : localList;
 
       const merged = mergePrintedAndApiDocs(filteredLocal, apiNormalized);
@@ -521,31 +523,81 @@ export default function InvoicesPage() {
           <h1 className="page-title">E-Invoice Documents & Ledger Tracker</h1>
         </div>
         <div className="page-actions">
-          <a
-            href={getExportDownloadUrl('/api/documents', { printed: 1 }, 'csv')}
-            target="_blank"
-            rel="noreferrer"
-            className="btn btn-outline"
-            style={{ textDecoration: 'none' }}
-          >
-            <Download size={15} /> CSV Export
-          </a>
-          <a
-            href={getExportDownloadUrl('/api/documents', { printed: 1 }, 'xlsx')}
-            target="_blank"
-            rel="noreferrer"
-            className="btn btn-outline"
-            style={{ textDecoration: 'none' }}
-          >
-            <Download size={15} /> Excel Export
-          </a>
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={() => setShowExportMenu((prev) => !prev)}
+            >
+              <Download size={15} /> Export <ChevronDown size={14} />
+            </button>
+
+            {showExportMenu && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  right: 0,
+                  minWidth: '170px',
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-light)',
+                  borderRadius: 'var(--radius-md)',
+                  boxShadow: 'var(--shadow-lg)',
+                  padding: '6px',
+                  zIndex: 50,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '2px'
+                }}
+              >
+                <a
+                  href={getExportDownloadUrl('/api/documents', { printed: 1 }, 'csv')}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => setShowExportMenu(false)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    color: 'var(--text-main)',
+                    textDecoration: 'none'
+                  }}
+                >
+                  <FileText size={14} color="var(--primary)" /> CSV Export (.csv)
+                </a>
+                <a
+                  href={getExportDownloadUrl('/api/documents', { printed: 1 }, 'xlsx')}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => setShowExportMenu(false)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    color: 'var(--text-main)',
+                    textDecoration: 'none'
+                  }}
+                >
+                  <Download size={14} color="var(--accent-emerald)" /> Excel Export (.xlsx)
+                </a>
+              </div>
+            )}
+          </div>
           <button
             type="button"
             className="btn btn-outline"
             onClick={() => loadAllDocuments(searchQuery)}
             disabled={loading}
           >
-            <RefreshCw size={15} className={loading ? 'spinner' : ''} /> Refresh Documents
+            <RefreshCw size={15} className={loading ? 'spinner' : ''} /> Refresh
           </button>
         </div>
       </div>
@@ -677,71 +729,78 @@ export default function InvoicesPage() {
         </div>
       </div>
 
-      {/* Filter Tabs & Search Bar */}
-      <div className="orders-toolbar no-print">
-        <div className="filter-tabs" style={{ margin: 0 }}>
-          {FILTER_TABS.map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              className={`filter-tab ${activeFilter === tab ? 'active' : ''}`}
-              onClick={() => {
-                setActiveFilter(tab);
-                setCurrentPage(1);
-              }}
-            >
-              {tab}
-              {tab === 'Pre-Pack Orders' && prepackOrders.length > 0 && (
-                <span className="badge badge-purple" style={{ marginLeft: '6px', fontSize: '0.68rem', padding: '1px 6px' }}>
-                  {prepackOrders.length}
-                </span>
-              )}
-              {tab === 'All Documents' && invoices.length > 0 && (
-                <span className="badge badge-primary" style={{ marginLeft: '6px', fontSize: '0.68rem', padding: '1px 6px' }}>
-                  {invoices.length}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        <form
-          className="orders-search-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setCurrentPage(1);
-            loadAllDocuments(searchQuery);
-          }}
-        >
-          <div className="orders-search-input-wrap">
-            <Search size={15} className="orders-search-icon" />
-            <input
-              type="text"
-              className="search-input"
-              style={{ paddingLeft: '34px', width: '100%' }}
-              placeholder="Search document #, order ID, waybill tracking, buyer..."
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setCurrentPage(1);
-              }}
-            />
-          </div>
-          <button type="submit" className="btn btn-primary" disabled={loading}>
-            Search
-          </button>
-        </form>
-      </div>
-
       {/* Main Documents Table Card */}
       <div className="card-section no-print" style={{ position: 'relative', overflow: 'visible', marginBottom: '24px' }}>
-        <div className="card-section-header">
+        <div className="card-section-header" style={{ flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <h2 className="card-section-title">
               {activeFilter === 'Pre-Pack Orders'
                 ? 'Pre-Pack Fulfillment Queue (/api/prepack)'
                 : 'E-Invoice Documents'}
             </h2>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', flex: 1, justifyContent: 'flex-end' }}>
+            <select
+              value={activeFilter}
+              onChange={(e) => {
+                setActiveFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              style={{
+                height: '38px',
+                padding: '0 12px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-light)',
+                backgroundColor: 'var(--bg-app)',
+                color: 'var(--text-main)',
+                fontWeight: 600,
+                fontSize: '0.85rem',
+                cursor: 'pointer'
+              }}
+              aria-label="Filter Documents"
+            >
+              {FILTER_TABS.map((tab) => {
+                let label = tab;
+                if (tab === 'All Documents' && invoices.length > 0) {
+                  label = `${tab} (${invoices.length})`;
+                } else if (tab === 'Pre-Pack Orders' && prepackOrders.length > 0) {
+                  label = `${tab} (${prepackOrders.length})`;
+                }
+                return (
+                  <option key={tab} value={tab}>
+                    {label}
+                  </option>
+                );
+              })}
+            </select>
+
+            <form
+              className="orders-search-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                setCurrentPage(1);
+                loadAllDocuments(searchQuery);
+              }}
+            >
+              <div className="orders-search-input-wrap">
+                <Search size={15} className="orders-search-icon" />
+                <input
+                  type="text"
+                  className="search-input"
+                  style={{ paddingLeft: '34px', width: '100%' }}
+                  placeholder="Search document #, order ID, waybill tracking, buyer..."
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                />
+              </div>
+              <button type="submit" className="btn btn-primary" disabled={loading}>
+                Search
+              </button>
+            </form>
           </div>
         </div>
 
@@ -786,11 +845,11 @@ export default function InvoicesPage() {
                           : 'Try modifying your search query or switching to another filter tab.'}
                       </p>
                       {prepackOrders.length > 0 && invoices.length === 0 && (
-                        <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+                        <div style={{ display: 'flex', gap: '10px', marginTop: '6px', borderRadius: 0 }}>
                           <button
                             type="button"
-                            className="btn btn-primary"
-                            style={{ fontSize: '0.8rem' }}
+                            className="btn btn-danger"
+                            style={{ fontSize: '0.8rem', borderRadius: 0 }}
                             onClick={() => setActiveFilter('Pre-Pack Orders')}
                           >
                             <Package size={14} /> View Pre-Pack Queue ({prepackOrders.length})
@@ -874,13 +933,12 @@ export default function InvoicesPage() {
                     </td>
                     <td>
                       <span
-                        className={`badge ${
-                          inv.isPrepack
-                            ? 'badge-purple'
-                            : inv.status === 'PAID' || inv.status === 'BIR STAMPED' || inv.status === 'ISSUED'
-                              ? 'badge-emerald'
-                              : 'badge-primary'
-                        }`}
+                        className={`badge ${inv.isPrepack
+                          ? 'badge-purple'
+                          : inv.status === 'PAID' || inv.status === 'BIR STAMPED' || inv.status === 'ISSUED'
+                            ? 'badge-emerald'
+                            : 'badge-primary'
+                          }`}
                       >
                         {inv.status || 'BIR Stamped'}
                       </span>
@@ -894,11 +952,11 @@ export default function InvoicesPage() {
                       )}
                     </td>
                     <td>
-                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', borderRadius: 4 }}>
                         <button
                           type="button"
                           className="btn btn-info"
-                          style={{ padding: '5px 8px', fontSize: '0.74rem' }}
+                          style={{ padding: '5px 8px', fontSize: '0.74rem', borderRadius: 4 }}
                           onClick={() => openInspectModal(inv)}
                           title="View Document Details & BIR EIS JSON"
                         >
@@ -907,7 +965,7 @@ export default function InvoicesPage() {
                         <button
                           type="button"
                           className="btn btn-primary"
-                          style={{ padding: '5px 10px', fontSize: '0.74rem' }}
+                          style={{ padding: '5px 10px', fontSize: '0.74rem', borderRadius: 4 }}
                           onClick={() => openReprintModal(inv)}
                           title="Print E-Invoice Waybill Ticket"
                         >
@@ -916,7 +974,7 @@ export default function InvoicesPage() {
                         <button
                           type="button"
                           className="btn btn-success"
-                          style={{ padding: '5px 10px', fontSize: '0.74rem' }}
+                          style={{ padding: '5px 10px', fontSize: '0.74rem', borderRadius: 4 }}
                           onClick={() => handleDownloadSoftCopy(inv)}
                           title="Download Waybill Soft Copy (PNG)"
                         >
@@ -974,9 +1032,8 @@ export default function InvoicesPage() {
               <button
                 key={pageNum}
                 type="button"
-                className={`btn pagination-btn ${
-                  pageNum === safePage ? 'btn-primary' : 'btn-outline'
-                }`}
+                className={`btn pagination-btn ${pageNum === safePage ? 'btn-primary' : 'btn-outline'
+                  }`}
                 onClick={() => setCurrentPage(pageNum)}
               >
                 {pageNum}

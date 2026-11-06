@@ -22,6 +22,31 @@
   --primary-light: #eff6ff;
   --primary-glow: rgba(59, 130, 246, 0.25);
 
+  --secondary: #64748b;
+  --secondary-hover: #475569;
+  --secondary-light: #f1f5f9;
+  --secondary-glow: rgba(100, 116, 139, 0.25);
+
+  --info: #0ea5e9;
+  --info-hover: #0284c7;
+  --info-light: #e0f2fe;
+  --info-glow: rgba(14, 165, 233, 0.25);
+
+  --success: #10b981;
+  --success-hover: #059669;
+  --success-light: #ecfdf5;
+  --success-glow: rgba(16, 185, 129, 0.25);
+
+  --warning: #f59e0b;
+  --warning-hover: #d97706;
+  --warning-light: #fffbeb;
+  --warning-glow: rgba(245, 158, 11, 0.25);
+
+  --danger: #f43f5e;
+  --danger-hover: #e11d48;
+  --danger-light: #fff1f2;
+  --danger-glow: rgba(244, 63, 94, 0.25);
+
   --accent-purple: #8b5cf6;
   --accent-emerald: #10b981;
   --accent-amber: #f59e0b;
@@ -89,7 +114,7 @@
 html, body {
   height: 100%;
   width: 100%;
-  font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 14px;
   line-height: 1.5;
   color: var(--text-main);
@@ -168,15 +193,30 @@ a {
   background: rgba(59, 130, 246, 0.12);
   color: var(--primary);
 }
+.badge-secondary {
+  background: rgba(100, 116, 139, 0.12);
+  color: var(--secondary);
+}
+.badge-info {
+  background: rgba(14, 165, 233, 0.12);
+  color: var(--info);
+}
+.badge-success,
 .badge-emerald {
   background: rgba(16, 185, 129, 0.12);
   color: var(--accent-emerald);
 }
+.badge-warning,
 .badge-amber {
   background: rgba(245, 158, 11, 0.12);
   color: var(--accent-amber);
 }
+.badge-danger,
 .badge-rose {
   background: rgba(244, 63, 94, 0.12);
   color: var(--accent-rose);
+}
+.badge-purple {
+  background: rgba(139, 92, 246, 0.12);
+  color: var(--accent-purple);
 }

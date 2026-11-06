@@ -27,7 +27,8 @@
   border-right: 1px solid var(--border-sidebar);
   flex-shrink: 0;
   user-select: none;
-  overflow: hidden;
+  position: relative;
+  overflow: visible;
 }
 
 .admin-sidebar.collapsed {
@@ -40,7 +41,7 @@
   padding: 0 16px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   border-bottom: 1px solid var(--border-sidebar);
   flex-shrink: 0;
 }
@@ -48,6 +49,8 @@
 .brand-link {
   display: flex;
   align-items: center;
+  justify-content: center;
+  width: 100%;
   gap: 12px;
   overflow: hidden;
   text-decoration: none;
@@ -77,8 +80,8 @@
 }
 
 .brand-name {
-  font-size: 1rem;
-  font-weight: 700;
+  font-size: 1.25rem;
+  font-weight: 800;
   color: #ffffff;
   letter-spacing: -0.02em;
 }
@@ -89,6 +92,34 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.sidebar-collapse-btn {
+  position: absolute;
+  top: 50%;
+  right: -14px;
+  transform: translateY(-50%);
+  z-index: 50;
+  display: flex;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-sidebar);
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-sidebar);
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+
+.sidebar-collapse-btn:hover {
+  color: #ffffff;
+  background: var(--primary);
+  border-color: var(--primary);
+  transform: translateY(-50%) scale(1.08);
 }
 
 .sidebar-mobile-close-btn {
@@ -113,7 +144,7 @@
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 16px 12px;
+  padding: 16px 0;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -124,6 +155,7 @@
 .nav-group-wrapper {
   display: flex;
   flex-direction: column;
+  width: 100%;
 }
 
 .nav-group-title {
@@ -132,7 +164,7 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
-  padding: 0 10px;
+  padding: 0 20px;
   margin-bottom: 6px;
   white-space: nowrap;
 }
@@ -141,7 +173,8 @@
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0;
+  width: 100%;
 }
 
 .nav-item-btn {
@@ -149,8 +182,8 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 12px;
-  border-radius: var(--radius-md);
+  padding: 11px 20px;
+  border-radius: 0;
   color: var(--text-sidebar);
   font-size: 0.885rem;
   font-weight: 500;
@@ -164,12 +197,16 @@
 .nav-item-btn:hover {
   background-color: var(--bg-sidebar-hover);
   color: #ffffff;
+  width: 100%;
+  border-radius: 0;
 }
 
 .nav-item-btn.active {
   background-color: var(--primary);
   color: #ffffff;
   font-weight: 600;
+  width: 100%;
+  border-radius: 0;
   box-shadow: 0 4px 14px var(--primary-glow);
 }
 
@@ -341,7 +378,7 @@
 }
 
 .admin-sidebar.collapsed .sidebar-nav {
-  padding: 16px 8px;
+  padding: 16px 0;
   align-items: center;
 }
 
@@ -357,6 +394,7 @@
   justify-content: center;
   padding: 12px 0;
   width: 100%;
+  border-radius: 0;
 }
 
 .admin-sidebar.collapsed .sidebar-footer {
@@ -584,9 +622,10 @@
 }
 
 /* --------------------------------------------------------------------------
-   PAGE CONTENT CONTAINER
+   PAGE CONTENT CONTAINER / WRAPPER
    -------------------------------------------------------------------------- */
-.admin-page-container {
+.admin-page-container,
+.page-wrapper {
   flex: 1;
   padding: 24px 32px;
   width: 100%;
@@ -598,7 +637,9 @@
 }
 
 @media (min-width: 1921px) {
-  .admin-page-container {
+
+  .admin-page-container,
+  .page-wrapper {
     max-width: 1800px;
     margin: 0 auto;
   }
@@ -681,9 +722,11 @@
   .mobile-toggle-btn {
     display: flex;
   }
+
   .sidebar-mobile-close-btn {
     display: flex;
   }
+
   .admin-sidebar {
     position: fixed;
     top: 0;
@@ -694,19 +737,25 @@
     z-index: 60;
     box-shadow: 4px 0 25px rgba(0, 0, 0, 0.45);
   }
+
   .admin-sidebar.mobile-open {
     transform: translateX(0);
   }
+
   .sidebar-overlay.active {
     display: block;
     z-index: 55;
   }
+
   .sidebar-collapse-btn {
     display: none;
   }
-  .admin-page-container {
+
+  .admin-page-container,
+  .page-wrapper {
     padding: 16px;
   }
+
   .admin-footer {
     flex-direction: column;
     height: auto;

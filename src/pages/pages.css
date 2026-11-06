@@ -54,6 +54,61 @@
   transform: translateY(-1px);
 }
 
+.btn-secondary {
+  background-color: var(--secondary);
+  color: #ffffff;
+  box-shadow: 0 2px 8px var(--secondary-glow);
+}
+
+.btn-secondary:hover {
+  background-color: var(--secondary-hover);
+  transform: translateY(-1px);
+}
+
+.btn-info {
+  background-color: var(--info);
+  color: #ffffff;
+  box-shadow: 0 2px 8px var(--info-glow);
+}
+
+.btn-info:hover {
+  background-color: var(--info-hover);
+  transform: translateY(-1px);
+}
+
+.btn-success {
+  background-color: var(--success);
+  color: #ffffff;
+  box-shadow: 0 2px 8px var(--success-glow);
+}
+
+.btn-success:hover {
+  background-color: var(--success-hover);
+  transform: translateY(-1px);
+}
+
+.btn-warning {
+  background-color: var(--warning);
+  color: #ffffff;
+  box-shadow: 0 2px 8px var(--warning-glow);
+}
+
+.btn-warning:hover {
+  background-color: var(--warning-hover);
+  transform: translateY(-1px);
+}
+
+.btn-danger {
+  background-color: var(--danger);
+  color: #ffffff;
+  box-shadow: 0 2px 8px var(--danger-glow);
+}
+
+.btn-danger:hover {
+  background-color: var(--danger-hover);
+  transform: translateY(-1px);
+}
+
 .btn-outline {
   background-color: var(--bg-surface);
   color: var(--text-main);
@@ -1157,7 +1212,8 @@
   }
   .admin-shell,
   .admin-main-wrapper,
-  .admin-page-container {
+  .admin-page-container,
+  .page-wrapper {
     display: block !important;
     width: 100mm !important;
     height: auto !important;
@@ -1200,4 +1256,82 @@
     border-top: 2px solid #000000 !important;
     border-bottom: 2px solid #000000 !important;
   }
+}
+
+/* --------------------------------------------------------------------------
+   CSS Grid Heatmap (Dashboard)
+   -------------------------------------------------------------------------- */
+:root {
+  --cell-size: 12px;
+  --gap: 3px;
+}
+
+.heatmap-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-surface);
+  width: 100%;
+  flex: 1;
+}
+
+.heatmap {
+  display: grid;
+  grid-template-columns: repeat(7, var(--cell-size));
+  grid-template-rows: repeat(5, var(--cell-size));
+  gap: var(--gap);
+}
+
+.cell {
+  width: 100%;
+  height: 100%;
+  border-radius: 3px;
+  position: relative;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.cell:hover {
+  transform: scale(1.2);
+  z-index: 10;
+}
+
+/* Intensity levels */
+.lvl-0 { background-color: #ebedf0; }
+.lvl-1 { background-color: #9be9a8; }
+.lvl-2 { background-color: #40c463; }
+.lvl-3 { background-color: #30a14e; }
+.lvl-4 { background-color: #216e39; }
+
+/* Tooltip using data attribute */
+.cell[data-value]:hover::after {
+  content: attr(data-value);
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1f2937;
+  color: white;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 20;
+}
+
+/* Legend */
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.legend .cell {
+  width: 10px;
+  height: 10px;
 }

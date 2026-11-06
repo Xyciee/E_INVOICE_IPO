@@ -231,19 +231,19 @@ export default function PackingScanPage() {
           if (draftNorm) {
             normalized = normalized
               ? {
-                  ...normalized,
-                  lines: normalized.lines?.length ? normalized.lines : draftNorm.lines,
-                  productSummary:
-                    normalized.productSummary !== '—'
-                      ? normalized.productSummary
-                      : draftNorm.productSummary,
-                  vatableSales:
-                    normalized.vatableSales !== '0.00'
-                      ? normalized.vatableSales
-                      : draftNorm.vatableSales,
-                  vatAmount:
-                    normalized.vatAmount !== '0.00' ? normalized.vatAmount : draftNorm.vatAmount
-                }
+                ...normalized,
+                lines: normalized.lines?.length ? normalized.lines : draftNorm.lines,
+                productSummary:
+                  normalized.productSummary !== '—'
+                    ? normalized.productSummary
+                    : draftNorm.productSummary,
+                vatableSales:
+                  normalized.vatableSales !== '0.00'
+                    ? normalized.vatableSales
+                    : draftNorm.vatableSales,
+                vatAmount:
+                  normalized.vatAmount !== '0.00' ? normalized.vatAmount : draftNorm.vatAmount
+              }
               : draftNorm;
           }
         }
@@ -703,19 +703,19 @@ export default function PackingScanPage() {
       ? displayDoc.lines
       : displayDoc
         ? [
-            {
-              id: 1,
-              productName:
-                displayDoc.productSummary !== '—'
-                  ? displayDoc.productSummary
-                  : `${displayDoc.platform} Order #${displayDoc.orderId}`,
-              sku: '',
-              qty: 1,
-              unitPrice: displayDoc.totalAmount,
-              vatAmount: displayDoc.vatAmount,
-              lineTotal: displayDoc.totalAmount
-            }
-          ]
+          {
+            id: 1,
+            productName:
+              displayDoc.productSummary !== '—'
+                ? displayDoc.productSummary
+                : `${displayDoc.platform} Order #${displayDoc.orderId}`,
+            sku: '',
+            qty: 1,
+            unitPrice: displayDoc.totalAmount,
+            vatAmount: displayDoc.vatAmount,
+            lineTotal: displayDoc.totalAmount
+          }
+        ]
         : [];
 
   return (
@@ -724,17 +724,7 @@ export default function PackingScanPage() {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <h1 className="page-title">Packing Scan Station</h1>
-            <span className={`badge ${health.ok ? 'badge-emerald' : 'badge-rose'}`}>
-              <Radio size={12} style={{ marginRight: '4px' }} />
-              {health.checking ? 'Checking...' : health.ok ? 'Online' : 'Offline'}
-            </span>
-            {(health.appEnv || user?.appEnv) === 'staging' && (
-              <span className="badge badge-amber">STAGING ENV</span>
-            )}
           </div>
-          <p className="page-subtitle">
-            Scan parcel waybills to issue and print BIR-compliant e-invoices.
-          </p>
         </div>
 
         <div className="page-actions">
@@ -1037,9 +1027,9 @@ export default function PackingScanPage() {
                   buyerTin={displayDoc?.buyerTin || '—'}
                   orderStatus={String(
                     activeOrder?.status ||
-                      activeOrder?.platform_status ||
-                      displayDoc?.status ||
-                      'PAID'
+                    activeOrder?.platform_status ||
+                    displayDoc?.status ||
+                    'PAID'
                   ).toUpperCase()}
                   lines={displayLines}
                   discountAmount={displayDoc?.discountAmount || '0.00'}
@@ -1123,14 +1113,12 @@ export default function PackingScanPage() {
                   activeInvoice && (
                     <div>
                       <div
-                        className={`invoice-status-box ${
-                          issueOutcome === 'ISSUED_NOW' ? 'issued-now' : ''
-                        }`}
+                        className={`invoice-status-box ${issueOutcome === 'ISSUED_NOW' ? 'issued-now' : ''
+                          }`}
                       >
                         <span
-                          className={`badge ${
-                            issueOutcome === 'ISSUED_NOW' ? 'badge-primary' : 'badge-emerald'
-                          }`}
+                          className={`badge ${issueOutcome === 'ISSUED_NOW' ? 'badge-primary' : 'badge-emerald'
+                            }`}
                         >
                           {issueOutcome === 'ISSUED_NOW' ? 'Issued & Printed' : 'Reprinted'}
                         </span>
@@ -1328,9 +1316,8 @@ export default function PackingScanPage() {
                       <button
                         key={pageNum}
                         type="button"
-                        className={`btn pagination-btn ${
-                          pageNum === safePage ? 'btn-primary' : 'btn-outline'
-                        }`}
+                        className={`btn pagination-btn ${pageNum === safePage ? 'btn-primary' : 'btn-outline'
+                          }`}
                         onClick={() => setRecentPage(pageNum)}
                       >
                         {pageNum}
@@ -1374,9 +1361,8 @@ export default function PackingScanPage() {
             </div>
 
             <span
-              className={`badge ${
-                scannerState !== 'IDLE' ? 'badge-emerald' : 'badge-primary'
-              }`}
+              className={`badge ${scannerState !== 'IDLE' ? 'badge-emerald' : 'badge-primary'
+                }`}
             >
               {scannerState === 'SUBMITTING'
                 ? 'Processing & Printing...'
@@ -1412,8 +1398,8 @@ export default function PackingScanPage() {
                       <strong>
                         {displayLines.length > 0
                           ? displayLines
-                              .map((l) => `${l.productName}${l.qty > 1 ? ` (x${l.qty})` : ''}`)
-                              .join(', ')
+                            .map((l) => `${l.productName}${l.qty > 1 ? ` (x${l.qty})` : ''}`)
+                            .join(', ')
                           : displayDoc.productSummary}
                       </strong>
                     </div>
@@ -1441,10 +1427,10 @@ export default function PackingScanPage() {
                   phase === 'DO_NOT_SHIP_AMBER' ||
                   phase === 'AMBIGUOUS_409' ||
                   phase === 'ERROR') && (
-                  <div style={{ marginTop: '4px', color: '#dc2626', fontWeight: 600 }}>
-                    ✕ {lookupData?.classified?.message}
-                  </div>
-                )}
+                    <div style={{ marginTop: '4px', color: '#dc2626', fontWeight: 600 }}>
+                      ✕ {lookupData?.classified?.message}
+                    </div>
+                  )}
               </div>
             )}
 
@@ -1498,9 +1484,9 @@ export default function PackingScanPage() {
             buyerTin={printableDoc._normalized?.buyerTin || displayDoc?.buyerTin || '—'}
             orderStatus={String(
               printableDoc._orderFallback?.status ||
-                printableDoc._normalized?.status ||
-                displayDoc?.status ||
-                'PAID'
+              printableDoc._normalized?.status ||
+              displayDoc?.status ||
+              'PAID'
             ).toUpperCase()}
             lines={
               printableDoc._normalized?.lines && printableDoc._normalized.lines.length > 0
