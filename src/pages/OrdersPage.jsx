@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ShoppingBag,
   Search,
@@ -11,7 +11,8 @@ import {
   Copy,
   Check,
   Eye,
-  ChevronDown
+  ChevronDown,
+  Gauge
 } from 'lucide-react';
 import {
   fetchActiveUnprintedOrders,
@@ -69,13 +70,17 @@ function getTodayManilaKey() {
   }
 }
 
-export default function OrdersPage() {
+export default function OrdersPage({ onNavigate }) {
   const [activeFilter, setActiveFilter] = useState('All Unprinted');
   const [queryInput, setQueryInput] = useState('');
   const [orders, setOrders] = useState([]);
   const [printedTrackerCount, setPrintedTrackerCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [fetchMs, setFetchMs] = useState(null);
+  const [fetchCached, setFetchCached] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
+  const queryInputRef = useRef('');
+  queryInputRef.current = queryInput;
   const [actionToast, setActionToast] = useState('');
   const [copiedTracking, setCopiedTracking] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -95,11 +100,14 @@ export default function OrdersPage() {
     }, 4500);
   }, []);
 
-  const loadUnprintedOrders = useCallback(async (searchTerm = '') => {
+  const loadUnprintedOrders = useCallback(async (searchTerm = '', forceRefresh = false) => {
     setLoading(true);
     setErrorMsg(null);
+    const start = performance.now();
 
-    const res = await fetchActiveUnprintedOrders(searchTerm);
+    const res = await fetchActiveUnprintedOrders(searchTerm, { forceRefresh });
+    setFetchMs(Math.round(performance.now() - start));
+    setFetchCached(Boolean(res.cached));
     setOrders(res.unprintedOrders || []);
     setPrintedTrackerCount(res.printedCount || 0);
 
@@ -113,8 +121,11 @@ export default function OrdersPage() {
     let active = true;
 
     async function init() {
+      const start = performance.now();
       const res = await fetchActiveUnprintedOrders('');
       if (!active) return;
+      setFetchMs(Math.round(performance.now() - start));
+      setFetchCached(Boolean(res.cached));
       setOrders(res.unprintedOrders || []);
       setPrintedTrackerCount(res.printedCount || 0);
       if (!res.ok && res.errorMessage) {
@@ -126,7 +137,7 @@ export default function OrdersPage() {
     init();
 
     const handlePrintedUpdate = () => {
-      loadUnprintedOrders(queryInput);
+      loadUnprintedOrders(queryInputRef.current);
     };
 
     window.addEventListener('bir-printed-invoices-updated', handlePrintedUpdate);
@@ -134,71 +145,68 @@ export default function OrdersPage() {
       active = false;
       window.removeEventListener('bir-printed-invoices-updated', handlePrintedUpdate);
     };
-  }, [loadUnprintedOrders, queryInput]);
+  }, [loadUnprintedOrders]);
 
   const hydrateOrderDetails = useCallback(async (ord) => {
     if (!ord) return ord;
     let updated = { ...ord };
 
-    if (ord.id) {
-      const docRes = await fetchDocumentDetails(ord.id);
-      if (docRes.ok && docRes.data) {
-        const norm = normalizeDocumentRecord(docRes.data);
-        if (norm) {
-          updated = {
-            ...updated,
-            ...norm,
-            orderId: norm.orderId !== '—' ? norm.orderId : updated.orderId,
-            tracking: norm.tracking !== '—' ? norm.tracking : updated.tracking,
-            lines: norm.lines?.length ? norm.lines : updated.lines
-          };
-        }
+    const canFetchDoc = Boolean(ord.id && !ord.raw?._source_order_id);
+    const lookupOrderId = ord.raw?._source_order_id || ord.orderId;
+    const canFetchDraft =
+      (!ord.lines || ord.lines.length === 0) &&
+      Boolean(ord.platform && ord.storeId && lookupOrderId && lookupOrderId !== '—');
+
+    const [docRes, draftRes] = await Promise.all([
+      canFetchDoc ? fetchDocumentDetails(ord.id) : Promise.resolve(null),
+      canFetchDraft
+        ? fetchOrderDraft(ord.platform, ord.storeId, lookupOrderId)
+        : Promise.resolve(null)
+    ]);
+
+    if (docRes?.ok && docRes.data) {
+      const norm = normalizeDocumentRecord(docRes.data);
+      if (norm) {
+        updated = {
+          ...updated,
+          ...norm,
+          orderId: norm.orderId !== '—' ? norm.orderId : updated.orderId,
+          tracking: norm.tracking !== '—' ? norm.tracking : updated.tracking,
+          lines: norm.lines?.length ? norm.lines : updated.lines
+        };
       }
     }
 
-    if (
-      (!updated.lines || updated.lines.length === 0) &&
-      updated.platform &&
-      updated.storeId &&
-      updated.orderId &&
-      updated.orderId !== '—'
-    ) {
-      const draftRes = await fetchOrderDraft(
-        updated.platform,
-        updated.storeId,
-        updated.orderId
-      );
-      if (draftRes.ok && draftRes.data) {
-        const draftNorm = normalizeDocumentRecord({
-          ...draftRes.data,
-          order: updated.raw || updated
-        });
-        if (draftNorm) {
-          updated = {
-            ...updated,
-            lines: draftNorm.lines?.length ? draftNorm.lines : updated.lines,
-            productSummary:
-              draftNorm.productSummary !== '—'
-                ? draftNorm.productSummary
-                : updated.productSummary,
-            discountAmount:
-              draftNorm.discountAmount !== '0.00'
-                ? draftNorm.discountAmount
-                : updated.discountAmount,
-            vatableSales:
-              draftNorm.vatableSales !== '0.00'
-                ? draftNorm.vatableSales
-                : updated.vatableSales,
-            vatAmount:
-              draftNorm.vatAmount !== '0.00' ? draftNorm.vatAmount : updated.vatAmount,
-            totalAmount:
-              draftNorm.totalAmount !== '0.00'
-                ? draftNorm.totalAmount
-                : updated.totalAmount,
-            invoiceState: draftNorm.invoiceState || updated.invoiceState,
-            holdReason: draftNorm.holdReason || updated.holdReason
-          };
-        }
+    if (draftRes?.ok && draftRes.data) {
+      const draftNorm = normalizeDocumentRecord({
+        ...draftRes.data,
+        order: updated.raw || updated
+      });
+      if (draftNorm) {
+        updated = {
+          ...updated,
+          lines: updated.lines?.length ? updated.lines : draftNorm.lines,
+          productSummary:
+            draftNorm.productSummary !== '—'
+              ? draftNorm.productSummary
+              : updated.productSummary,
+          discountAmount:
+            draftNorm.discountAmount !== '0.00'
+              ? draftNorm.discountAmount
+              : updated.discountAmount,
+          vatableSales:
+            draftNorm.vatableSales !== '0.00'
+              ? draftNorm.vatableSales
+              : updated.vatableSales,
+          vatAmount:
+            draftNorm.vatAmount !== '0.00' ? draftNorm.vatAmount : updated.vatAmount,
+          totalAmount:
+            draftNorm.totalAmount !== '0.00'
+              ? draftNorm.totalAmount
+              : updated.totalAmount,
+          invoiceState: draftNorm.invoiceState || updated.invoiceState,
+          holdReason: draftNorm.holdReason || updated.holdReason
+        };
       }
     }
 
@@ -459,7 +467,7 @@ export default function OrdersPage() {
           <button
             type="button"
             className="btn btn-outline"
-            onClick={() => loadUnprintedOrders(queryInput)}
+            onClick={() => loadUnprintedOrders(queryInput, true)}
             disabled={loading}
           >
             <RefreshCw size={15} /> Refresh
@@ -928,48 +936,46 @@ export default function OrdersPage() {
                 <div className="section-title">
                   Product Ordered by Customer ({getDisplayLines(selectedOrder).length})
                 </div>
-                {getDisplayLines(selectedOrder)
-                  .slice(0, 2)
-                  .map((line, i) => (
-                    <div
-                      key={line.id || i}
-                      className="item-card"
-                      style={i > 0 ? { marginTop: '8px' } : undefined}
-                    >
-                      <div className="item-name">{line.productName}</div>
+                {getDisplayLines(selectedOrder).map((line, i) => (
+                  <div
+                    key={line.id || i}
+                    className="item-card"
+                    style={i > 0 ? { marginTop: '8px' } : undefined}
+                  >
+                    <div className="item-name">{line.productName}</div>
 
-                      {line.sku && (
-                        <div>
-                          <div className="sku-pill">
-                            SKU: <span className="num-target">{line.sku}</span>
-                          </div>
+                    {line.sku && (
+                      <div>
+                        <div className="sku-pill">
+                          SKU: <span className="num-target">{line.sku}</span>
                         </div>
-                      )}
+                      </div>
+                    )}
 
-                      <table className="item-table">
-                        <thead>
-                          <tr>
-                            <th style={{ width: '15%' }}>Qty</th>
-                            <th>Unit Price</th>
-                            <th>12% VAT</th>
-                            <th>Total</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr>
-                            <td className="num-target" style={{ fontWeight: 700 }}>
-                              {line.qty}
-                            </td>
-                            <td className="num-target">₱{line.unitPrice}</td>
-                            <td className="num-target">₱{line.vatAmount}</td>
-                            <td className="num-target" style={{ fontWeight: 700 }}>
-                              ₱{line.lineTotal}
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  ))}
+                    <table className="item-table">
+                      <thead>
+                        <tr>
+                          <th style={{ width: '15%' }}>Qty</th>
+                          <th>Unit Price</th>
+                          <th>12% VAT</th>
+                          <th>Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td className="num-target" style={{ fontWeight: 700 }}>
+                            {line.qty}
+                          </td>
+                          <td className="num-target">₱{line.unitPrice}</td>
+                          <td className="num-target">₱{line.vatAmount}</td>
+                          <td className="num-target" style={{ fontWeight: 700 }}>
+                            ₱{line.lineTotal}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
               </div>
 
               {/* Financial Tax Breakdown */}

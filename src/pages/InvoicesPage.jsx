@@ -56,9 +56,14 @@ function mergePrintedAndApiDocs(localPrinted, apiDocs) {
   const map = new Map();
 
   // 1. Add all live API documents from /api/documents
-  for (const doc of apiDocs) {
+  for (let i = 0; i < apiDocs.length; i++) {
+    const doc = apiDocs[i];
     if (!doc) continue;
-    const key = String(doc.id || doc.documentNumber || doc.orderId || Math.random());
+    const validDocNum =
+      doc.documentNumber && doc.documentNumber !== '—' ? doc.documentNumber : null;
+    const validOrderId =
+      doc.orderId && doc.orderId !== '—' ? `${doc.platform || ''}:${doc.orderId}` : null;
+    const key = String(doc.id || validDocNum || validOrderId || `doc-${i}`);
     const apiPrintCount = Math.max(
       Number(doc.printCount || 0),
       Array.isArray(doc.prints) ? doc.prints.length : 0
@@ -164,46 +169,46 @@ export default function InvoicesPage() {
     if (!doc) return doc;
     let updated = { ...doc };
 
-    if (doc.id) {
-      const detailRes = await fetchDocumentDetails(doc.id);
-      if (detailRes.ok && detailRes.data) {
-        const norm = normalizeDocumentRecord(detailRes.data);
-        if (norm) {
-          updated = {
-            ...updated,
-            ...norm,
-            tracking:
-              norm.tracking && norm.tracking !== '—' ? norm.tracking : updated.tracking,
-            lines: norm.lines?.length ? norm.lines : updated.lines
-          };
-        }
+    const canFetchDoc = Boolean(doc.id);
+    const canFetchDraft =
+      (!doc.lines || doc.lines.length === 0) &&
+      Boolean(doc.platform && doc.storeId && doc.orderId && doc.orderId !== '—');
+
+    const [detailRes, draftRes] = await Promise.all([
+      canFetchDoc ? fetchDocumentDetails(doc.id) : Promise.resolve(null),
+      canFetchDraft
+        ? fetchOrderDraft(doc.platform, doc.storeId, doc.orderId)
+        : Promise.resolve(null)
+    ]);
+
+    if (detailRes?.ok && detailRes.data) {
+      const norm = normalizeDocumentRecord(detailRes.data);
+      if (norm) {
+        updated = {
+          ...updated,
+          ...norm,
+          tracking:
+            norm.tracking && norm.tracking !== '—' ? norm.tracking : updated.tracking,
+          lines: norm.lines?.length ? norm.lines : updated.lines
+        };
       }
     }
 
-    if (
-      (!updated.lines || updated.lines.length === 0) &&
-      updated.platform &&
-      updated.storeId &&
-      updated.orderId &&
-      updated.orderId !== '—'
-    ) {
-      const draftRes = await fetchOrderDraft(updated.platform, updated.storeId, updated.orderId);
-      if (draftRes.ok && draftRes.data) {
-        const draftNorm = normalizeDocumentRecord(draftRes.data);
-        if (draftNorm && draftNorm.lines?.length) {
-          updated = {
-            ...updated,
-            lines: draftNorm.lines,
-            productSummary:
-              updated.productSummary !== '—' ? updated.productSummary : draftNorm.productSummary,
-            discountAmount:
-              updated.discountAmount !== '0.00' ? updated.discountAmount : draftNorm.discountAmount,
-            vatableSales:
-              updated.vatableSales !== '0.00' ? updated.vatableSales : draftNorm.vatableSales,
-            vatAmount:
-              updated.vatAmount !== '0.00' ? updated.vatAmount : draftNorm.vatAmount
-          };
-        }
+    if (draftRes?.ok && draftRes.data) {
+      const draftNorm = normalizeDocumentRecord(draftRes.data);
+      if (draftNorm && draftNorm.lines?.length) {
+        updated = {
+          ...updated,
+          lines: updated.lines?.length ? updated.lines : draftNorm.lines,
+          productSummary:
+            updated.productSummary !== '—' ? updated.productSummary : draftNorm.productSummary,
+          discountAmount:
+            updated.discountAmount !== '0.00' ? updated.discountAmount : draftNorm.discountAmount,
+          vatableSales:
+            updated.vatableSales !== '0.00' ? updated.vatableSales : draftNorm.vatableSales,
+          vatAmount:
+            updated.vatAmount !== '0.00' ? updated.vatAmount : draftNorm.vatAmount
+        };
       }
     }
 
@@ -211,7 +216,7 @@ export default function InvoicesPage() {
   }, []);
 
   // Fetch all documents from einvoice.ipolymersolutionscorp.com/api/documents
-  const loadAllDocuments = useCallback(async (q = '') => {
+  const loadAllDocuments = useCallback(async (q = '', forceRefresh = false) => {
     setLoading(true);
     setApiError(null);
     const localList = getPrintedInvoiceRecords();
@@ -221,23 +226,26 @@ export default function InvoicesPage() {
       let rawDocs = [];
       let nextUrl = null;
 
-      // 1. Primary query to /api/documents
-      const queryObj = trimmed ? { q: trimmed } : {};
-      const docsRes = await api.get('/api/documents', queryObj);
+      // 1. Primary query to /api/documents and /api/prepack in parallel (aligned with Dashboard & Orders cache keys)
+      const queryObj = trimmed ? { q: trimmed, limit: 200 } : { limit: 200 };
+      const [docsRes, preRes] = await Promise.all([
+        api.get('/api/documents', queryObj, { forceRefresh }),
+        api.get('/api/prepack', { problems_only: 0, limit: 200 }, { forceRefresh })
+      ]);
 
       if (docsRes.ok && docsRes.data) {
         rawDocs.push(...extractDocumentList(docsRes.data));
         nextUrl = docsRes.data?.next || null;
       } else {
         // Fallback to fetchPrintedInvoices / fetchDocumentsRegister
-        const printsRes = await fetchPrintedInvoices(trimmed ? { q: trimmed } : {});
+        const printsRes = await fetchPrintedInvoices(trimmed ? { q: trimmed } : {}, { forceRefresh });
         if (printsRes.ok && printsRes.data) {
           rawDocs.push(...extractDocumentList(printsRes.data));
           nextUrl = printsRes.data?.next || null;
         } else {
           const fallbackRes = trimmed
-            ? await searchDocuments(trimmed)
-            : await fetchDocumentsRegister({ printed: 1 });
+            ? await searchDocuments(trimmed, { forceRefresh })
+            : await fetchDocumentsRegister({ printed: 1 }, { forceRefresh });
           if (fallbackRes.ok && fallbackRes.data) {
             rawDocs.push(...extractDocumentList(fallbackRes.data));
             nextUrl = fallbackRes.data?.next || null;
@@ -259,7 +267,7 @@ export default function InvoicesPage() {
         page++;
         try {
           const u = new URL(nextUrl, 'https://einvoice.ipolymersolutionscorp.com');
-          const pageRes = await api.get(`/api/documents?${u.searchParams.toString()}`);
+          const pageRes = await api.get(`/api/documents?${u.searchParams.toString()}`, {}, { forceRefresh });
           if (pageRes.ok && pageRes.data) {
             const pageDocs = extractDocumentList(pageRes.data);
             if (pageDocs.length === 0) break;
@@ -289,8 +297,7 @@ export default function InvoicesPage() {
       const merged = mergePrintedAndApiDocs(filteredLocal, apiNormalized);
       setInvoices(merged);
 
-      // 2. Fetch Pre-Pack queue for staging reference
-      const preRes = await api.get('/api/prepack');
+      // 2. Populate Pre-Pack queue from parallel request
       if (preRes.ok && preRes.data) {
         const list = extractDocumentList(preRes.data);
         setPrepackOrders(list);
@@ -572,7 +579,7 @@ export default function InvoicesPage() {
           <button
             type="button"
             className="btn btn-outline"
-            onClick={() => loadAllDocuments(searchQuery)}
+            onClick={() => loadAllDocuments(searchQuery, true)}
             disabled={loading}
           >
             <RefreshCw size={15} className={loading ? 'spinner' : ''} /> Refresh

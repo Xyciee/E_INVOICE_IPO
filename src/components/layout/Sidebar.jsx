@@ -5,6 +5,7 @@ import {
   ShoppingCart,
   Receipt,
   FileMinus,
+  Gauge,
   ChevronLeft,
   ChevronRight,
   LogOut,
@@ -62,7 +63,6 @@ export default function Sidebar({
           id: 'packing-scan',
           label: 'Packing Scan',
           icon: ScanLine,
-          badge: 'Live'
         },
         {
           id: 'orders',
@@ -79,6 +79,17 @@ export default function Sidebar({
           id: 'credit-notes',
           label: 'Credit Notes',
           icon: FileMinus,
+        }
+      ]
+    },
+    {
+      group: 'Diagnostics & System',
+      items: [
+        {
+          id: 'api-speed-test',
+          label: 'API Speed Test',
+          icon: Gauge,
+          badge: null
         }
       ]
     }
@@ -119,14 +130,35 @@ export default function Sidebar({
           title="ISC E-Invoice System"
         >
           {isCollapsed ? (
-            <span className="brand-name" style={{ fontSize: '1.35rem', fontWeight: 800 }}>
-              E
-            </span>
+            <div
+              className="text-center font-['Montserrat',sans-serif]"
+              style={{ textAlign: 'center', fontFamily: "'Montserrat', sans-serif" }}
+            >
+              <div
+                className="text-2xl font-black tracking-tight"
+                style={{ fontSize: '1.5rem', lineHeight: '2rem', fontWeight: 900, letterSpacing: '-0.025em' }}
+              >
+                <span style={{ color: '#0284c7' }}>E-</span>
+              </div>
+            </div>
           ) : (
-            <div className="brand-info" style={{ alignItems: 'center', textAlign: 'center', width: '100%' }}>
-              <span className="brand-name" style={{ fontSize: '1.25rem', fontWeight: 800 }}>
-                ISC E-Invoice
-              </span>
+            /* Montserrat Uppercase Variant */
+            <div
+              className="text-center font-['Montserrat',sans-serif]"
+              style={{ textAlign: 'center', fontFamily: "'Montserrat', sans-serif", width: '100%' }}
+            >
+              <div
+                className="text-2xl font-black tracking-tight"
+                style={{ fontSize: '1.5rem', lineHeight: '2rem', fontWeight: 900, letterSpacing: '-0.025em' }}
+              >
+                <span style={{ color: '#0284c7' }}>E-</span>
+                <span
+                  className="text-slate-900 uppercase"
+                  style={{ color: '#ffffff', textTransform: 'uppercase' }}
+                >
+                  INVOICE
+                </span>
+              </div>
             </div>
           )}
         </a>

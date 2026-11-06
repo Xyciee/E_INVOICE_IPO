@@ -1,6 +1,14 @@
 import { getCsrfToken } from './authService';
+import { apiRequest, clearApiCache } from './apiClient';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+
+let unprintedOrdersMemCache = new Map();
+
+export function invalidateOrdersAndDocsCache() {
+  unprintedOrdersMemCache.clear();
+  clearApiCache();
+}
 
 const FALLBACK_REPRINT_REASONS = [
   { code: 'printer_jam', label: 'Printer jam or paper problem' },
@@ -33,6 +41,29 @@ async function request(path, options = {}) {
   const method = (options.method || 'GET').toUpperCase();
   const isMutation = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
 
+  if (method === 'GET') {
+    const res = await apiRequest('GET', path, {
+      forceRefresh: Boolean(options.forceRefresh),
+      bypassCache: Boolean(options.bypassCache)
+    });
+    if (res.networkError) {
+      return {
+        ok: false,
+        status: 503,
+        networkError: true,
+        cached: false,
+        data: { detail: res.data?.message || 'Unable to reach server.' }
+      };
+    }
+    return {
+      ok: res.ok,
+      status: res.status,
+      cached: Boolean(res.cached),
+      timeMs: res.timeMs,
+      data: res.data
+    };
+  }
+
   const send = async (refreshCsrf = false) => {
     const headers = {
       Accept: 'application/json',
@@ -61,6 +92,10 @@ async function request(path, options = {}) {
     let res = await send(false);
     if (res.status === 403 && isMutation) {
       res = await send(true);
+    }
+
+    if (res.ok && isMutation) {
+      invalidateOrdersAndDocsCache();
     }
 
     let data = null;
@@ -486,6 +521,12 @@ export function extractDocumentList(data) {
   if (Array.isArray(data.items)) return data.items;
   if (Array.isArray(data.orders)) return data.orders;
   if (Array.isArray(data.rows)) return data.rows;
+  if (Array.isArray(data.prepack)) return data.prepack;
+  if (Array.isArray(data.records)) return data.records;
+  if (typeof data === 'object') {
+    const firstArr = Object.values(data).find((v) => Array.isArray(v));
+    if (firstArr) return firstArr;
+  }
   if (data.header || data.document || data.id || data.document_number) {
     return [data];
   }
@@ -1035,6 +1076,7 @@ export function getExportDownloadUrl(endpointPath, params = {}, format = 'xlsx')
 export function fetchPrepackOrders(problemsOnly = true, extraParams = {}) {
   const qs = buildQueryString({
     problems_only: problemsOnly ? 1 : 0,
+    limit: 200,
     ...extraParams
   });
   return request(`/api/prepack${qs}`);
@@ -1151,6 +1193,7 @@ export function savePrintedInvoiceRecord(record, meta = {}) {
 
   try {
     localStorage.setItem(PRINTED_INVOICES_STORAGE_KEY, JSON.stringify(nextList));
+    invalidateOrdersAndDocsCache();
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('bir-printed-invoices-updated'));
     }
@@ -1208,89 +1251,150 @@ export function isOrderAlreadyPrinted(order, printedRecords = []) {
   });
 }
 
-export async function fetchActiveUnprintedOrders(searchTerm = '') {
+export async function fetchActiveUnprintedOrders(
+  searchTerm = '',
+  { forceRefresh = false } = {}
+) {
   const trimmed = searchTerm.trim();
-  const queryParams = trimmed ? { q: trimmed, limit: 200 } : { limit: 200 };
+  const cacheKey = trimmed.toLowerCase();
 
-  const [ordersRes, prepackRes, printsRes] = await Promise.all([
-    fetchOrdersList(queryParams),
-    fetchPrepackOrders(false, trimmed ? { q: trimmed } : {}),
-    fetchPrintedInvoices({})
+  if (forceRefresh) {
+    invalidateOrdersAndDocsCache();
+  } else if (unprintedOrdersMemCache.has(cacheKey)) {
+    const cachedEntry = unprintedOrdersMemCache.get(cacheKey);
+    if (trimmed || (cachedEntry?.unprintedOrders?.length ?? 0) >= 200) {
+      return {
+        ...cachedEntry,
+        cached: true
+      };
+    }
+    invalidateOrdersAndDocsCache();
+  }
+
+  const prepackQuery = trimmed
+    ? { problems_only: 0, limit: 200, q: trimmed }
+    : { problems_only: 0, limit: 200 };
+  const docsQuery = trimmed ? { q: trimmed, limit: 200 } : { limit: 200 };
+
+  const fetchAllPages = async (basePath, initialRes) => {
+    const items = [];
+    if (!initialRes?.ok || !initialRes?.data) return items;
+    items.push(...extractDocumentList(initialRes.data));
+
+    let nextUrl = initialRes.data?.next || null;
+    let page = 1;
+    while (nextUrl && page < 20) {
+      page++;
+      try {
+        const u = new URL(nextUrl, 'https://einvoice.ipolymersolutionscorp.com');
+        const pageRes = await request(`${basePath}?${u.searchParams.toString()}`, {
+          forceRefresh
+        });
+        if (pageRes.ok && pageRes.data) {
+          const pageItems = extractDocumentList(pageRes.data);
+          if (pageItems.length === 0) break;
+          items.push(...pageItems);
+          nextUrl = pageRes.data?.next || null;
+        } else {
+          break;
+        }
+      } catch {
+        break;
+      }
+    }
+    return items;
+  };
+
+  const [prepackRes, docsRes] = await Promise.all([
+    request(`/api/prepack${buildQueryString(prepackQuery)}`, { forceRefresh }),
+    request(`/api/documents${buildQueryString(docsQuery)}`, { forceRefresh })
+  ]);
+
+  const [prepackItems, docItems] = await Promise.all([
+    fetchAllPages('/api/prepack', prepackRes),
+    fetchAllPages('/api/documents', docsRes)
   ]);
 
   const localPrinted = getPrintedInvoiceRecords();
-  const apiPrinted =
-    printsRes.ok && printsRes.data
-      ? extractDocumentList(printsRes.data).map(normalizeDocumentRecord).filter(Boolean)
-      : [];
+  const apiDocsNormalized = docItems.map(normalizeDocumentRecord).filter(Boolean);
+  const apiPrinted = apiDocsNormalized.filter(
+    (d) =>
+      Number(d.printCount || 0) > 0 ||
+      (Array.isArray(d.prints) && d.prints.length > 0) ||
+      Boolean(d.lastPrintedAt && d.lastPrintedAt !== '—')
+  );
   const allPrinted = [...localPrinted, ...apiPrinted];
 
-  const combinedMap = new Map();
+  const prepackNormalized = prepackItems.map(normalizeDocumentRecord).filter(Boolean);
+  const docByOrderKey = new Map();
 
-  const addRawItems = (rawItems) => {
-    for (const raw of rawItems) {
-      const norm = normalizeDocumentRecord(raw);
-      if (!norm) continue;
-
-      const key =
-        norm.orderId && norm.orderId !== '—'
-          ? `${String(norm.platform).toLowerCase()}:${norm.orderId}`
-          : norm.tracking && norm.tracking !== '—'
-            ? `wb:${norm.tracking}`
-            : norm.id
-              ? `id:${norm.id}`
-              : `doc:${norm.documentNumber}-${Math.random()}`;
-
-      const prev = combinedMap.get(key);
-      if (prev) {
-        combinedMap.set(key, {
-          ...prev,
-          ...norm,
-          id: norm.id || prev.id,
-          documentNumber:
-            norm.documentNumber && norm.documentNumber !== '—'
-              ? norm.documentNumber
-              : prev.documentNumber,
-          tracking:
-            norm.tracking && norm.tracking !== '—' ? norm.tracking : prev.tracking,
-          lines: norm.lines?.length ? norm.lines : prev.lines,
-          productSummary:
-            norm.productSummary && norm.productSummary !== '—'
-              ? norm.productSummary
-              : prev.productSummary,
-          totalAmount:
-            norm.totalAmount && norm.totalAmount !== '0.00'
-              ? norm.totalAmount
-              : prev.totalAmount,
-          orderDate:
-            norm.orderDate && norm.orderDate !== '—' ? norm.orderDate : prev.orderDate
-        });
-      } else {
-        combinedMap.set(key, norm);
-      }
-    }
-  };
-
-  if (ordersRes.ok && ordersRes.data) {
-    addRawItems(extractDocumentList(ordersRes.data));
-  }
-  if (prepackRes.ok && prepackRes.data) {
-    addRawItems(extractDocumentList(prepackRes.data));
-  }
-
-  if (combinedMap.size === 0) {
-    const docRes = trimmed
-      ? await searchDocuments(trimmed)
-      : await fetchDocumentsRegister({ printed: 0, limit: 200 });
-    if (docRes.ok && docRes.data) {
-      addRawItems(extractDocumentList(docRes.data));
+  for (const docNorm of apiDocsNormalized) {
+    const key =
+      docNorm.orderId && docNorm.orderId !== '—'
+        ? `${String(docNorm.platform).toLowerCase()}:${docNorm.orderId}`
+        : docNorm.tracking && docNorm.tracking !== '—'
+          ? `wb:${docNorm.tracking}`
+          : docNorm.id
+            ? `id:${docNorm.id}`
+            : null;
+    if (key) {
+      docByOrderKey.set(key, docNorm);
     }
   }
 
-  const allOrders = Array.from(combinedMap.values());
-  const unprintedOrders = allOrders.filter(
-    (order) => !isOrderAlreadyPrinted(order, allPrinted)
-  );
+  const matchedDocKeys = new Set();
+  const allOrders = prepackNormalized.map((prev) => {
+    const key =
+      prev.orderId && prev.orderId !== '—'
+        ? `${String(prev.platform).toLowerCase()}:${prev.orderId}`
+        : prev.tracking && prev.tracking !== '—'
+          ? `wb:${prev.tracking}`
+          : prev.id
+            ? `id:${prev.id}`
+            : null;
+    const norm = key ? docByOrderKey.get(key) : null;
+    if (!norm) return prev;
+    matchedDocKeys.add(key);
+    return {
+      ...prev,
+      ...norm,
+      id: norm.id || prev.id,
+      documentNumber:
+        norm.documentNumber && norm.documentNumber !== '—'
+          ? norm.documentNumber
+          : prev.documentNumber,
+      tracking:
+        norm.tracking && norm.tracking !== '—' ? norm.tracking : prev.tracking,
+      lines: norm.lines?.length ? norm.lines : prev.lines,
+      productSummary:
+        norm.productSummary && norm.productSummary !== '—'
+          ? norm.productSummary
+          : prev.productSummary,
+      totalAmount:
+        norm.totalAmount && norm.totalAmount !== '0.00'
+          ? norm.totalAmount
+          : prev.totalAmount,
+      orderDate:
+        norm.orderDate && norm.orderDate !== '—' ? norm.orderDate : prev.orderDate
+    };
+  });
+
+  for (const docNorm of apiDocsNormalized) {
+    const key =
+      docNorm.orderId && docNorm.orderId !== '—'
+        ? `${String(docNorm.platform).toLowerCase()}:${docNorm.orderId}`
+        : docNorm.tracking && docNorm.tracking !== '—'
+          ? `wb:${docNorm.tracking}`
+          : docNorm.id
+            ? `id:${docNorm.id}`
+            : null;
+    if (!key || !matchedDocKeys.has(key)) {
+      allOrders.push(docNorm);
+    }
+  }
+
+  // Keep all orders visible so they can be browsed with pagination
+  const unprintedOrders = allOrders;
 
   const uniquePrintedMap = new Map();
   for (const pr of allPrinted) {
@@ -1299,18 +1403,25 @@ export async function fetchActiveUnprintedOrders(searchTerm = '') {
     if (!uniquePrintedMap.has(k)) uniquePrintedMap.set(k, pr);
   }
 
-  return {
-    ok: ordersRes.ok || prepackRes.ok || allOrders.length > 0,
-    status: ordersRes.status || prepackRes.status || 200,
+  const result = {
+    ok: prepackRes.ok || docsRes.ok || allOrders.length > 0,
+    status: prepackRes.status || docsRes.status || 200,
     unprintedOrders,
     printedCount: uniquePrintedMap.size,
+    cached: Boolean(prepackRes.cached && docsRes.cached),
     errorMessage:
-      !ordersRes.ok && !prepackRes.ok
-        ? ordersRes.data?.detail ||
-          prepackRes.data?.detail ||
-          `Unable to load orders (${ordersRes.status}).`
+      !prepackRes.ok && !docsRes.ok
+        ? prepackRes.data?.detail ||
+          docsRes.data?.detail ||
+          `Unable to load orders (${prepackRes.status}).`
         : null
   };
+
+  if (result.ok) {
+    unprintedOrdersMemCache.set(cacheKey, result);
+  }
+
+  return result;
 }
 
 function wrapTextLines(ctx, text, maxWidth) {

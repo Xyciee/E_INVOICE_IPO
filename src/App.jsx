@@ -9,6 +9,7 @@ import OrdersPage from './pages/OrdersPage';
 import InvoicesPage from './pages/InvoicesPage';
 import SettingsPage from './pages/SettingsPage';
 import ApiTesterPage from './pages/ApiTesterPage';
+import ApiSpeedTestPage from './pages/ApiSpeedTestPage';
 import CreditNotesPage from './pages/CreditNotesPage';
 import ErrorBoundary from './components/feedback/ErrorBoundary';
 
@@ -20,8 +21,20 @@ const VALID_PAGES = new Set([
   'invoices',
   'credit-notes',
   'settings',
-  'api-tester'
+  'api-tester',
+  'api-speed-test'
 ]);
+
+const PAGE_TAB_TITLES = {
+  dashboard: 'Dashboard',
+  'packing-scan': 'Packing Scan',
+  orders: 'Orders',
+  invoices: 'Invoices Tracker',
+  'credit-notes': 'Credit Notes',
+  settings: 'Settings',
+  'api-tester': 'API Tester',
+  'api-speed-test': 'API Speed Test'
+};
 
 function AppContent() {
   const { isAuthenticated, loading } = useAuth();
@@ -45,13 +58,27 @@ function AppContent() {
   }, [activePage]);
 
   useEffect(() => {
-    document.title = '\u200B';
+    const pageLabel = isAuthenticated
+      ? PAGE_TAB_TITLES[activePage] ||
+        activePage.charAt(0).toUpperCase() + activePage.slice(1)
+      : 'Login';
+    const tabTitle = `E-Invoice - ${pageLabel}`;
+    document.title = tabTitle;
+
     const clearTitleForPrint = () => {
       document.title = '\u200B';
     };
+    const restoreTitleAfterPrint = () => {
+      document.title = tabTitle;
+    };
+
     window.addEventListener('beforeprint', clearTitleForPrint);
-    return () => window.removeEventListener('beforeprint', clearTitleForPrint);
-  }, []);
+    window.addEventListener('afterprint', restoreTitleAfterPrint);
+    return () => {
+      window.removeEventListener('beforeprint', clearTitleForPrint);
+      window.removeEventListener('afterprint', restoreTitleAfterPrint);
+    };
+  }, [activePage, isAuthenticated]);
 
   if (loading) {
     return (
@@ -104,6 +131,8 @@ function AppContent() {
         return <SettingsPage />;
       case 'api-tester':
         return <ApiTesterPage />;
+      case 'api-speed-test':
+        return <ApiSpeedTestPage />;
       default:
         return <DashboardPage onNavigate={setActivePage} />;
     }

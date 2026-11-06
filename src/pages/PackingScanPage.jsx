@@ -660,10 +660,10 @@ export default function PackingScanPage() {
     };
   }, [isScanOpen, scannerState, runScan]);
 
-  const loadUnresolved = useCallback(async () => {
+  const loadUnresolved = useCallback(async (forceRefresh = false) => {
     setUnresolvedLoading(true);
     setUnresolvedErr(null);
-    const res = await fetchUnresolvedScans();
+    const res = await fetchUnresolvedScans({ forceRefresh: Boolean(forceRefresh) });
     setUnresolvedLoading(false);
 
     if (!res.ok) {
@@ -683,9 +683,8 @@ export default function PackingScanPage() {
 
     const ok = await confirm({
       title: 'Resolve Unresolved Scan?',
-      message: `Are you sure you want to resolve scan #${scanId}${
-        waybill ? ` (${waybill})` : ''
-      } with note: "${note}"?`,
+      message: `Are you sure you want to resolve scan #${scanId}${waybill ? ` (${waybill})` : ''
+        } with note: "${note}"?`,
       confirmText: 'Resolve Scan',
       cancelText: 'Cancel',
       variant: 'info',
@@ -875,7 +874,7 @@ export default function PackingScanPage() {
             <button
               type="button"
               className="btn btn-outline"
-              onClick={loadUnresolved}
+              onClick={() => loadUnresolved(true)}
               disabled={unresolvedLoading}
             >
               <RefreshCw size={15} /> Refresh
@@ -961,10 +960,7 @@ export default function PackingScanPage() {
             <div className="stat-card">
               <div className="stat-card-header">
                 <span className="stat-card-label">Total Scans in Session</span>
-                <div
-                  className="stat-card-icon-wrap"
-                  style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}
-                >
+                <div className="stat-card-icon-wrap">
                   <ScanLine size={20} />
                 </div>
               </div>
@@ -980,10 +976,7 @@ export default function PackingScanPage() {
             <div className="stat-card">
               <div className="stat-card-header">
                 <span className="stat-card-label">Printed E-Invoices</span>
-                <div
-                  className="stat-card-icon-wrap"
-                  style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}
-                >
+                <div className="stat-card-icon-wrap">
                   <Printer size={20} />
                 </div>
               </div>
@@ -997,10 +990,7 @@ export default function PackingScanPage() {
             <div className="stat-card">
               <div className="stat-card-header">
                 <span className="stat-card-label">Blocked / Hold Alerts</span>
-                <div
-                  className="stat-card-icon-wrap"
-                  style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }}
-                >
+                <div className="stat-card-icon-wrap">
                   <AlertTriangle size={20} />
                 </div>
               </div>
@@ -1142,7 +1132,6 @@ export default function PackingScanPage() {
               <div className="card-section" style={{ marginBottom: 0 }}>
                 <div className="card-section-header">
                   <h2 className="card-section-title">Order Waybill & E-Invoice Slip</h2>
-                  <span className="badge badge-emerald">100×150mm Waybill Format</span>
                 </div>
 
                 <WaybillTicket

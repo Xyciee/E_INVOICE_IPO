@@ -54,6 +54,8 @@ export default function Header({
               ? 'Credit Notes'
               : activePage === 'api-tester'
               ? 'API Tester'
+              : activePage === 'api-speed-test'
+              ? 'API Speed Test'
               : activePage.charAt(0).toUpperCase() + activePage.slice(1)}
           </span>
         </div>

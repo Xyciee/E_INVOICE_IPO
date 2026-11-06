@@ -76,8 +76,18 @@ const dateLabel = (date) =>
 const uniqueRecords = (records) => {
   const mapped = new Map();
   records.filter(Boolean).forEach((record, index) => {
+    const validDocNum =
+      record.documentNumber && record.documentNumber !== '—'
+        ? record.documentNumber
+        : null;
+    const validOrderId =
+      record.orderId && record.orderId !== '—'
+        ? `${record.platform || ''}:${record.orderId}`
+        : null;
+    const validTrack =
+      record.tracking && record.tracking !== '—' ? record.tracking : null;
     const key = String(
-      record.id || record.documentNumber || record.orderId || `row-${index}`
+      record.id || validDocNum || validOrderId || validTrack || `row-${index}`
     );
     if (!mapped.has(key)) mapped.set(key, record);
   });
@@ -451,7 +461,7 @@ export default function DashboardPage({ onNavigate }) {
     try {
       const [docsResult, ordersResult] = await Promise.allSettled([
         api.get('/api/documents', { limit: 200 }),
-        api.get('/api/prepack', { limit: 200 })
+        api.get('/api/prepack', { problems_only: 0, limit: 200 })
       ]);
       const local = getPrintedInvoiceRecords() || [];
       const docsOK =

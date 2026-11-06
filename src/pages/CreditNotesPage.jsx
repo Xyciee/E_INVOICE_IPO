@@ -17,6 +17,7 @@ import { api } from '../services/apiClient';
 import { useAuth } from '../context/AuthContext';
 import { useNotify, useConfirm } from '../context/NotificationContext';
 import PlatformBadge from '../components/PlatformBadge';
+import './pages.css';
 import './creditNotes.css';
 
 // Standard BIR RMC 98-2026 Reason Codes
@@ -163,7 +164,7 @@ export default function CreditNotesPage() {
   const fetchLiveCandidates = async (showNotification = false) => {
     setLoadingCandidates(true);
     try {
-      const res = await api.get('/api/credit-notes/candidates');
+      const res = await api.get('/api/credit-notes/candidates', {}, { forceRefresh: showNotification });
       if (res.ok && Array.isArray(res.data) && res.data.length > 0) {
         setCandidates(res.data);
         if (showNotification) {
@@ -495,22 +496,20 @@ export default function CreditNotesPage() {
   };
 
   return (
-    <div className="cn-page animate-fade-in">
+    <div className="cn-page">
       {/* Header */}
       <div className="page-header" style={{ marginBottom: '16px' }}>
         <div>
           <h1 className="page-title" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <FileMinus size={24} style={{ color: 'var(--accent-rose)' }} />
             Credit Notes & Adjustments
           </h1>
-          <p className="page-subtitle">
-            BIR EIS & PTI Compliant write-once ledger adjustments for cancellations, returns, and invoice reissues
-          </p>
         </div>
 
         <div className="page-actions">
           <button
+            type="button"
             className="btn btn-outline"
+            style={{ borderRadius: 4 }}
             onClick={() => fetchLiveCandidates(true)}
             disabled={loadingCandidates}
             title="Refresh candidate orders from backend"
@@ -518,7 +517,12 @@ export default function CreditNotesPage() {
             <RefreshCw size={15} className={loadingCandidates ? 'spinner' : ''} />
             <span>Refresh</span>
           </button>
-          <button className="btn btn-primary" onClick={handleOpenManualIssue}>
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ borderRadius: 4 }}
+            onClick={handleOpenManualIssue}
+          >
             <Plus size={16} />
             <span>Issue Credit Note</span>
           </button>
@@ -526,27 +530,13 @@ export default function CreditNotesPage() {
       </div>
 
       {/* Compliance Notice Banner */}
-      <div className="cn-compliance-banner">
-        <div className="cn-compliance-icon">
-          <ShieldAlert size={20} />
-        </div>
-        <div className="cn-compliance-content">
-          <div className="cn-compliance-title">Legal Rule: Write-Once Invoicing (BIR RMC 98-2026)</div>
-          <div className="cn-compliance-text">
-            Issued invoices are immutable and never deleted. Any decrease, return, or order cancellation must be
-            issued as an official <strong>Credit Note</strong>. Reissuing to a buyer’s corporate name is executed as a
-            two-step atomic ledger entry (Credit Note + New Replacement Invoice). Over-crediting is strictly prohibited.
-          </div>
-        </div>
-      </div>
-
       {/* Stats Summary Cards */}
       <div className="cn-stats-grid">
         <div className="cn-stat-card">
           <div className="cn-stat-top">
             <span className="cn-stat-label">Pending Candidates</span>
-            <div className="cn-stat-icon" style={{ background: 'rgba(245, 158, 11, 0.12)', color: 'var(--accent-amber)' }}>
-              <Clock size={18} />
+            <div className="cn-stat-icon">
+              <Clock size={20} />
             </div>
           </div>
           <div className="cn-stat-value">{candidates.length}</div>
@@ -558,8 +548,8 @@ export default function CreditNotesPage() {
         <div className="cn-stat-card">
           <div className="cn-stat-top">
             <span className="cn-stat-label">Issued Credit Notes</span>
-            <div className="cn-stat-icon" style={{ background: 'rgba(59, 130, 246, 0.12)', color: 'var(--primary)' }}>
-              <FileCheck2 size={18} />
+            <div className="cn-stat-icon">
+              <FileCheck2 size={20} />
             </div>
           </div>
           <div className="cn-stat-value">{issuedLedger.length}</div>
@@ -571,8 +561,8 @@ export default function CreditNotesPage() {
         <div className="cn-stat-card">
           <div className="cn-stat-top">
             <span className="cn-stat-label">Total Credited Value</span>
-            <div className="cn-stat-icon" style={{ background: 'rgba(244, 63, 94, 0.12)', color: 'var(--accent-rose)' }}>
-              <RotateCcw size={18} />
+            <div className="cn-stat-icon">
+              <RotateCcw size={20} />
             </div>
           </div>
           <div className="cn-stat-value">
@@ -586,8 +576,8 @@ export default function CreditNotesPage() {
         <div className="cn-stat-card">
           <div className="cn-stat-top">
             <span className="cn-stat-label">Compliance Engine</span>
-            <div className="cn-stat-icon" style={{ background: 'rgba(16, 185, 129, 0.12)', color: 'var(--accent-emerald)' }}>
-              <CheckCircle2 size={18} />
+            <div className="cn-stat-icon">
+              <CheckCircle2 size={20} />
             </div>
           </div>
           <div className="cn-stat-value" style={{ fontSize: '1.2rem', color: 'var(--accent-emerald)' }}>
@@ -696,13 +686,9 @@ export default function CreditNotesPage() {
                   {filteredCandidates.map((cand) => (
                     <tr key={cand.id}>
                       <td>
-                        <div style={{ fontWeight: 700 }}>{cand.orderId}</div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
                           <PlatformBadge platform={cand.platform} />
                           <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{cand.storeName}</span>
-                        </div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)', marginTop: '2px' }}>
-                          Waybill: {cand.tracking}
                         </div>
                       </td>
                       <td>
@@ -732,12 +718,13 @@ export default function CreditNotesPage() {
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <button
+                          type="button"
                           className="btn btn-primary"
-                          style={{ padding: '6px 14px', fontSize: '0.8rem' }}
+                          style={{ padding: '5px 10px', fontSize: '0.74rem', borderRadius: 4 }}
                           onClick={() => handleOpenIssueCandidate(cand)}
                         >
                           <span>Review & Issue</span>
-                          <ArrowRight size={14} />
+                          <ArrowRight size={13} />
                         </button>
                       </td>
                     </tr>
@@ -822,10 +809,11 @@ export default function CreditNotesPage() {
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <button
-                          className="btn btn-outline"
-                          style={{ padding: '5px 10px', fontSize: '0.75rem' }}
+                          type="button"
+                          className="btn btn-info"
+                          style={{ padding: '5px 10px', fontSize: '0.74rem', borderRadius: 4 }}
                           onClick={() => handleViewEisJson(item)}
-                          title="View BIR EIS JSON preview"
+                          title="View Credit Note Details & BIR EIS JSON"
                         >
                           <Eye size={13} />
                           <span>EIS JSON</span>
@@ -861,7 +849,9 @@ export default function CreditNotesPage() {
                   onChange={(e) => setBalanceInputInvoice(e.target.value)}
                 />
                 <button
+                  type="button"
                   className="btn btn-primary"
+                  style={{ borderRadius: 4 }}
                   onClick={handleInspectBalance}
                   disabled={balanceLoading}
                 >
@@ -922,7 +912,9 @@ export default function CreditNotesPage() {
 
                 <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
                   <button
+                    type="button"
                     className="btn btn-primary"
+                    style={{ borderRadius: 4 }}
                     onClick={() => {
                       setModalInvoiceId(balanceResult.invoice_id);
                       setModalReasonCode('01');
@@ -948,26 +940,98 @@ export default function CreditNotesPage() {
         )}
       </div>
 
-      {/* MODAL 1: ISSUE CREDIT NOTE */}
+      {/* MODAL 1: ISSUE CREDIT NOTE - Right Side Modal like InvoicesPage */}
       {showIssueModal && (
-        <div className="cn-modal-overlay" onMouseDown={() => setShowIssueModal(false)}>
-          <div className="cn-modal-card" onMouseDown={(e) => e.stopPropagation()}>
-            <div className="cn-modal-header">
-              <div className="cn-modal-title">
-                <FileMinus size={20} style={{ color: 'var(--accent-rose)' }} />
-                <span>Issue BIR EIS Credit Note</span>
+        <div
+          className="order-drawer-backdrop no-print"
+          onClick={() => setShowIssueModal(false)}
+        >
+          <aside
+            className="order-right-modal"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="modal-header">
+              <div>
+                <div style={{ marginBottom: '4px' }}>
+                  <PlatformBadge
+                    platform={selectedCandidate?.platform || 'Marketplace'}
+                    printed={Boolean(selectedCandidate)}
+                  />
+                </div>
+                <div className="modal-title-row">
+                  <span>Issue BIR EIS Credit Note</span>
+                  {modalInvoiceId && (
+                    <span className="order-id-badge num-target">
+                      #{modalInvoiceId}
+                    </span>
+                  )}
+                </div>
+                <p className="modal-subtitle">
+                  Order:{' '}
+                  <span className="num-target">
+                    {selectedCandidate?.orderId || 'Direct-Issue'}
+                  </span>{' '}
+                  &middot; Store:{' '}
+                  <span className="num-target">
+                    {selectedCandidate?.storeName || 'Ipolymer Solutions Corp.'}
+                  </span>
+                </p>
               </div>
               <button
-                className="api-icon-btn"
+                type="button"
+                className="btn-close"
                 onClick={() => setShowIssueModal(false)}
                 aria-label="Close modal"
               >
-                <X size={18} />
+                &times;
               </button>
             </div>
 
-            <form onSubmit={handleSubmitCreditNote}>
-              <div className="cn-modal-body">
+            <form
+              onSubmit={handleSubmitCreditNote}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                flex: 1,
+                minHeight: 0,
+                overflow: 'hidden'
+              }}
+            >
+              {/* Body */}
+              <div className="modal-body" style={{ overflowY: 'auto', gap: '14px' }}>
+                {selectedCandidate && (
+                  <div>
+                    <div className="section-title">Channel &amp; Buyer Information</div>
+                    <div className="meta-box">
+                      <div className="meta-col">
+                        <span className="meta-lbl">Store</span>
+                        <span className="meta-val">
+                          {selectedCandidate.platform} &middot; {selectedCandidate.storeName}
+                        </span>
+                      </div>
+                      <div className="meta-col">
+                        <span className="meta-lbl">Buyer</span>
+                        <span className="meta-val">{selectedCandidate.customer}</span>
+                      </div>
+                      <div className="meta-col">
+                        <span className="meta-lbl">Order ID</span>
+                        <span className="meta-val highlight num-target">
+                          {selectedCandidate.orderId}
+                        </span>
+                      </div>
+                      <div className="meta-col">
+                        <span className="meta-lbl">Waybill Tracking</span>
+                        <span className="num-target meta-val">
+                          {selectedCandidate.tracking || '—'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Invoice ID input */}
                 <div className="cn-form-group">
                   <label className="cn-form-label">
@@ -986,6 +1050,7 @@ export default function CreditNotesPage() {
                     <button
                       type="button"
                       className="btn btn-outline"
+                      style={{ borderRadius: 4, whiteSpace: 'nowrap' }}
                       onClick={handleLookupInvoiceBalance}
                       disabled={fetchingBalance}
                     >
@@ -1016,7 +1081,7 @@ export default function CreditNotesPage() {
                 {/* Audit Explanation */}
                 <div className="cn-form-group">
                   <label className="cn-form-label">
-                    <span>Audit Explanation & Notes</span>
+                    <span>Audit Explanation &amp; Notes</span>
                     <span className="cn-form-hint">Mandatory for accounting compliance</span>
                   </label>
                   <textarea
@@ -1030,135 +1095,257 @@ export default function CreditNotesPage() {
                 </div>
 
                 {/* Line Items Breakdown */}
-                <div className="cn-form-group">
-                  <label className="cn-form-label">
-                    <span>Creditable Line Items</span>
-                    <span className="cn-form-hint">Amount cannot exceed available balance</span>
-                  </label>
+                <div>
+                  <div className="section-title">
+                    Creditable Line Items ({modalLines.length})
+                  </div>
 
                   {modalLines.length === 0 ? (
-                    <div style={{ padding: '14px', background: 'var(--bg-app)', borderRadius: 'var(--radius-md)', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    <div
+                      style={{
+                        padding: '12px',
+                        background: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '0.78rem',
+                        color: '#64748b'
+                      }}
+                    >
                       No lines loaded yet. Click <strong>"Fetch Balance"</strong> above or enter invoice details.
                     </div>
                   ) : (
-                    <div className="cn-lines-card">
-                      {modalLines.map((line, idx) => (
-                        <div key={line.lineId || idx} className="cn-line-row">
-                          <div>
-                            <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{line.name}</div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                              Open balance: <strong>₱{line.creditable}</strong>
-                            </div>
+                    modalLines.map((line, idx) => (
+                      <div
+                        key={line.lineId || idx}
+                        className="item-card"
+                        style={idx > 0 ? { marginTop: '8px' } : undefined}
+                      >
+                        <div className="item-name">{line.name}</div>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '8px',
+                            marginTop: '4px'
+                          }}
+                        >
+                          <div className="sku-pill">
+                            Open Balance: <span className="num-target">₱{line.creditable}</span>
                           </div>
-                          <div>
-                            <button
-                              type="button"
-                              className="api-link-btn"
-                              style={{ fontSize: '0.72rem' }}
-                              onClick={() => handleLineCreditFull(idx)}
-                            >
-                              Credit Full
-                            </button>
-                          </div>
-                          <div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>₱</span>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                max={line.creditable}
-                                className="cn-form-input"
-                                style={{ padding: '6px 8px', fontSize: '0.85rem', textAlign: 'right' }}
-                                value={line.amountToCredit}
-                                onChange={(e) => handleLineAmountChange(idx, e.target.value)}
-                              />
-                            </div>
+                          <button
+                            type="button"
+                            className="btn btn-outline"
+                            style={{ padding: '3px 8px', fontSize: '0.7rem', borderRadius: 4 }}
+                            onClick={() => handleLineCreditFull(idx)}
+                          >
+                            Credit Full
+                          </button>
+                        </div>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '8px',
+                            marginTop: '6px'
+                          }}
+                        >
+                          <span style={{ fontSize: '0.74rem', fontWeight: 600, color: '#64748b' }}>
+                            Amount to Credit (PHP)
+                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', width: '140px' }}>
+                            <span style={{ fontSize: '0.82rem', fontWeight: 700 }}>₱</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max={line.creditable}
+                              className="cn-form-input num-target"
+                              style={{ padding: '5px 8px', fontSize: '0.82rem', textAlign: 'right' }}
+                              value={line.amountToCredit}
+                              onChange={(e) => handleLineAmountChange(idx, e.target.value)}
+                            />
                           </div>
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    ))
                   )}
                 </div>
 
-                {/* Total Credit Box */}
-                <div className="cn-credit-total-box">
-                  <div className="cn-credit-total-label">Total Credit Note Deduction:</div>
-                  <div className="cn-credit-total-num">₱{totalCreditAmount}</div>
+                {/* Financial Tax Breakdown */}
+                <div>
+                  <div className="section-title">Tax Valuation &amp; Deduction Summary</div>
+                  <div className="totals-box">
+                    <div className="totals-row">
+                      <span>VATable Sales Deduction</span>
+                      <span className="num-target">
+                        ₱{(parseFloat(totalCreditAmount || 0) / 1.12).toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="totals-row">
+                      <span>12% VAT Deduction</span>
+                      <span className="num-target">
+                        ₱{(parseFloat(totalCreditAmount || 0) - parseFloat(totalCreditAmount || 0) / 1.12).toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="totals-row grand-total">
+                      <span>Total Credit Note Deduction</span>
+                      <span className="total-amount-display num-target">
+                        -₱{parseFloat(totalCreditAmount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <div className="cn-modal-footer">
+              {/* Sticky Footer */}
+              <div className="modal-footer">
                 <button
                   type="button"
-                  className="btn btn-outline"
+                  className="modal-btn modal-btn-secondary"
+                  style={{ borderRadius: 4 }}
                   onClick={() => setShowIssueModal(false)}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="btn btn-primary"
+                  className="modal-btn modal-btn-primary"
+                  style={{ borderRadius: 4 }}
                   disabled={isSubmitting || parseFloat(totalCreditAmount) <= 0}
                 >
-                  {isSubmitting ? (
-                    <span className="spinner" />
-                  ) : (
-                    <>
-                      <FileCheck2 size={16} />
-                      <span>Issue Credit Note</span>
-                    </>
-                  )}
+                  {isSubmitting ? 'Submitting...' : 'Issue Credit Note'}
                 </button>
               </div>
             </form>
-          </div>
+          </aside>
         </div>
       )}
 
-      {/* MODAL 2: BIR EIS JSON PREVIEW */}
+      {/* MODAL 2: BIR EIS JSON PREVIEW - Right Side Modal like InvoicesPage */}
       {previewDoc && (
-        <div className="cn-modal-overlay" onMouseDown={() => setPreviewDoc(null)}>
-          <div className="cn-modal-card" style={{ maxWidth: '640px' }} onMouseDown={(e) => e.stopPropagation()}>
-            <div className="cn-modal-header">
-              <div className="cn-modal-title">
-                <FileCheck2 size={20} style={{ color: 'var(--accent-emerald)' }} />
-                <span>BIR EIS JSON Payload — {previewDoc.id}</span>
+        <div
+          className="order-drawer-backdrop no-print"
+          onClick={() => setPreviewDoc(null)}
+        >
+          <aside
+            className="order-right-modal"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="modal-header">
+              <div>
+                <div style={{ marginBottom: '4px' }}>
+                  <PlatformBadge
+                    platform={previewDoc.platform || 'Marketplace'}
+                    printed
+                  />
+                </div>
+                <div className="modal-title-row">
+                  <span>Credit Note</span>
+                  <span className="order-id-badge num-target">#{previewDoc.id}</span>
+                </div>
+                <p className="modal-subtitle">
+                  Ref Invoice: <span className="num-target">{previewDoc.invoiceId || '—'}</span> &middot; Date:{' '}
+                  <span className="num-target">{previewDoc.date || '—'}</span>
+                </p>
               </div>
               <button
-                className="api-icon-btn"
+                type="button"
+                className="btn-close"
                 onClick={() => setPreviewDoc(null)}
                 aria-label="Close preview"
               >
-                <X size={18} />
+                &times;
               </button>
             </div>
-            <div className="cn-modal-body">
-              <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                This is the official JSON document generated for submission to the BIR Electronic Invoicing System (EIS).
-              </p>
-              <pre
-                style={{
-                  background: '#0b1220',
-                  color: '#86efac',
-                  padding: '16px',
-                  borderRadius: 'var(--radius-md)',
-                  fontFamily: 'JetBrains Mono, monospace',
-                  fontSize: '0.78rem',
-                  lineHeight: 1.5,
-                  maxHeight: '380px',
-                  overflowY: 'auto'
-                }}
-              >
-                {JSON.stringify(previewDoc.eisJson, null, 2)}
-              </pre>
+
+            {/* Body */}
+            <div className="modal-body" style={{ overflowY: 'auto' }}>
+              <div>
+                <div className="section-title">Channel &amp; Ledger Information</div>
+                <div className="meta-box">
+                  <div className="meta-col">
+                    <span className="meta-lbl">Store</span>
+                    <span className="meta-val">
+                      {previewDoc.platform || 'Marketplace'} &middot; {previewDoc.storeName || 'Official Store'}
+                    </span>
+                  </div>
+                  <div className="meta-col">
+                    <span className="meta-lbl">Original Invoice</span>
+                    <span className="meta-val highlight num-target">{previewDoc.invoiceId || '—'}</span>
+                  </div>
+                  <div className="meta-col">
+                    <span className="meta-lbl">Order ID</span>
+                    <span className="meta-val num-target">{previewDoc.orderId || '—'}</span>
+                  </div>
+                  <div className="meta-col">
+                    <span className="meta-lbl">Reason Code</span>
+                    <span className="meta-val num-target">Code {previewDoc.reasonCode || '01'}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="section-title">Tax Valuation &amp; Settlement</div>
+                <div className="totals-box">
+                  <div className="totals-row">
+                    <span>VATable Sales Deduction</span>
+                    <span className="num-target">
+                      ₱{(parseFloat(previewDoc.amount || 0) / 1.12).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="totals-row">
+                    <span>12% VAT Deduction</span>
+                    <span className="num-target">
+                      ₱{(parseFloat(previewDoc.amount || 0) - parseFloat(previewDoc.amount || 0) / 1.12).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="totals-row grand-total">
+                    <span>Total Credited Amount</span>
+                    <span className="total-amount-display num-target">
+                      -₱{parseFloat(previewDoc.amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="section-title">BIR EIS JSON Payload</div>
+                <pre
+                  style={{
+                    background: '#0b1220',
+                    color: '#86efac',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    fontFamily: 'JetBrains Mono, monospace',
+                    fontSize: '0.74rem',
+                    lineHeight: 1.45,
+                    maxHeight: '280px',
+                    overflowY: 'auto',
+                    margin: 0
+                  }}
+                >
+                  {JSON.stringify(previewDoc.eisJson, null, 2)}
+                </pre>
+              </div>
             </div>
-            <div className="cn-modal-footer">
-              <button className="btn btn-outline" onClick={() => setPreviewDoc(null)}>
+
+            {/* Sticky Footer */}
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="modal-btn modal-btn-secondary"
+                style={{ borderRadius: 4 }}
+                onClick={() => setPreviewDoc(null)}
+              >
                 Close
               </button>
             </div>
-          </div>
+          </aside>
         </div>
       )}
     </div>
