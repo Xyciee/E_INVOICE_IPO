@@ -8,7 +8,6 @@ import {
   Clock,
   RefreshCw,
   ShieldAlert,
-  Radio,
   MapPin,
   History,
   Check,
@@ -31,7 +30,8 @@ import {
   fetchUnresolvedScans,
   resolveUnresolvedScan,
   normalizeReprintReasons,
-  savePrintedInvoiceRecord
+  savePrintedInvoiceRecord,
+  getPrintedInvoiceRecords
 } from '../services/scanService';
 import WaybillTicket from '../components/WaybillTicket';
 import './pages.css';
@@ -42,7 +42,7 @@ export default function PackingScanPage() {
   const notify = useNotify();
   const [activeTab, setActiveTab] = useState('scanner');
 
-  const [health, setHealth] = useState({ checking: true, ok: true, appEnv: null });
+  const [_health, setHealth] = useState({ checking: true, ok: true, appEnv: null });
   const [stations, setStations] = useState([]);
   const [selectedStation, setSelectedStation] = useState('');
 
@@ -73,6 +73,7 @@ export default function PackingScanPage() {
     }
   });
   const [isRecentModalOpen, setIsRecentModalOpen] = useState(false);
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [recentPage, setRecentPage] = useState(1);
   const LOGS_PER_PAGE = 10;
 
@@ -739,6 +740,68 @@ export default function PackingScanPage() {
         ]
         : [];
 
+  const printedRecords = getPrintedInvoiceRecords();
+  const lastPrintedDoc = printedRecords[0] || null;
+
+  const printedLogsCount = logs.filter(
+    (l) => l.status === 'PRINTED' || l.status === 'REPRINTED' || l.status === 'ISSUED'
+  ).length;
+  const totalPrintedCount = Math.max(printedRecords.length, printedLogsCount);
+
+  const blockedOrHoldCount = logs.filter(
+    (l) =>
+      l.status === 'BLOCKED' ||
+      l.status === 'DO NOT SHIP' ||
+      l.status === 'UNPAID HOLD' ||
+      l.status === '409 AMBIGUOUS' ||
+      l.status === 'GAVE UP' ||
+      String(l.status || '').startsWith('ERROR')
+  ).length;
+
+  const standbyPreviewDoc = lastPrintedDoc || {
+    platform: 'Shopee',
+    storeName: 'Qualisafe Official Store',
+    copyTag: 'STANDBY',
+    documentNumber: 'SAMPLE-EINV-2026',
+    issuedAt: 'Standby Thermal Preview',
+    orderId: 'READY-TO-SCAN',
+    lines: [
+      {
+        id: 1,
+        productName: 'Scan parcel barcode to load order items & 12% VAT',
+        sku: 'WAYBILL-BARCODE',
+        qty: 1,
+        unitPrice: '0.00',
+        vatAmount: '0.00',
+        lineTotal: '0.00'
+      }
+    ],
+    discountAmount: '0.00',
+    vatableSales: '0.00',
+    vatAmount: '0.00',
+    vatExemptSales: '0.00',
+    zeroRatedSales: '0.00',
+    totalAmount: '0.00'
+  };
+
+  const standbyLines =
+    Array.isArray(standbyPreviewDoc.lines) && standbyPreviewDoc.lines.length > 0
+      ? standbyPreviewDoc.lines
+      : [
+        {
+          id: 1,
+          productName:
+            standbyPreviewDoc.productSummary && standbyPreviewDoc.productSummary !== '—'
+              ? standbyPreviewDoc.productSummary
+              : `${standbyPreviewDoc.platform || 'Marketplace'} Order #${standbyPreviewDoc.orderId || '—'}`,
+          sku: '',
+          qty: 1,
+          unitPrice: standbyPreviewDoc.totalAmount || '0.00',
+          vatAmount: standbyPreviewDoc.vatAmount || '0.00',
+          lineTotal: standbyPreviewDoc.totalAmount || '0.00'
+        }
+      ];
+
   return (
     <div>
       <div className="page-header no-print">
@@ -893,6 +956,67 @@ export default function PackingScanPage() {
         </div>
       ) : (
         <div className="no-print">
+          {/* 3 KPI Stat Cards Row */}
+          <div className="stats-grid">
+            <div className="stat-card">
+              <div className="stat-card-header">
+                <span className="stat-card-label">Total Scans in Session</span>
+                <div
+                  className="stat-card-icon-wrap"
+                  style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}
+                >
+                  <ScanLine size={20} />
+                </div>
+              </div>
+              <div className="stat-card-value">{logs.length}</div>
+              <div className="stat-card-footer">
+                <span className="badge badge-primary">
+                  Station: {selectedStation || 'Active'}
+                </span>
+                <span className="trend-description">2D Hardware Barcode Ready</span>
+              </div>
+            </div>
+
+            <div className="stat-card">
+              <div className="stat-card-header">
+                <span className="stat-card-label">Printed E-Invoices</span>
+                <div
+                  className="stat-card-icon-wrap"
+                  style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}
+                >
+                  <Printer size={20} />
+                </div>
+              </div>
+              <div className="stat-card-value">{totalPrintedCount}</div>
+              <div className="stat-card-footer">
+                <span className="badge badge-emerald">100×150mm Thermal</span>
+                <span className="trend-description">Synced to Invoices Tracker</span>
+              </div>
+            </div>
+
+            <div className="stat-card">
+              <div className="stat-card-header">
+                <span className="stat-card-label">Blocked / Hold Alerts</span>
+                <div
+                  className="stat-card-icon-wrap"
+                  style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }}
+                >
+                  <AlertTriangle size={20} />
+                </div>
+              </div>
+              <div className="stat-card-value">{blockedOrHoldCount}</div>
+              <div className="stat-card-footer">
+                <span
+                  className={`badge ${blockedOrHoldCount > 0 ? 'badge-amber' : 'badge-emerald'
+                    }`}
+                >
+                  {blockedOrHoldCount > 0 ? 'Needs Attention' : 'All Clear'}
+                </span>
+                <span className="trend-description">Set-aside parcel checks</span>
+              </div>
+            </div>
+          </div>
+
           <div className="card-section scan-trigger-banner">
             <div className="scan-trigger-left">
               <div className="scan-trigger-icon">
@@ -1217,31 +1341,217 @@ export default function PackingScanPage() {
             </div>
           )}
 
-          <div className="card-section">
-            <div className="card-section-header" style={{ marginBottom: 0 }}>
-              <div>
-                <h2 className="card-section-title">
-                  <History size={16} style={{ verticalAlign: 'middle', marginRight: '6px' }} />
-                  Recent Scan Activity
-                </h2>
-                <p className="page-subtitle">
-                  {logs.length === 0
-                    ? 'No scans recorded in this session yet.'
-                    : `${logs.length} scan event${logs.length > 1 ? 's' : ''} recorded in this session.`}
-                </p>
+          {phase === 'IDLE' && (
+            <div className="cards-grid-2" style={{ marginBottom: '20px', alignItems: 'stretch' }}>
+              {/* Left Column: Last Scanned / Standby 100x150mm Waybill Preview */}
+              <div className="card-section" style={{ marginBottom: 0 }}>
+                <div className="card-section-header">
+                  <div>
+                    <h2 className="card-section-title">
+                      {lastPrintedDoc
+                        ? 'Last Printed Waybill E-Invoice'
+                        : '100×150mm Thermal Waybill Preview'}
+                    </h2>
+                  </div>
+                  <span className={`badge ${lastPrintedDoc ? 'badge-emerald' : 'badge-primary'}`}>
+                    {lastPrintedDoc ? 'Last Printed' : 'Standby Preview'}
+                  </span>
+                </div>
+
+                <WaybillTicket
+                  platform={standbyPreviewDoc.platform || 'Marketplace'}
+                  storeName={standbyPreviewDoc.storeName || 'Official Store'}
+                  copyTag={
+                    lastPrintedDoc
+                      ? lastPrintedDoc.isReprint
+                        ? 'REPRINT'
+                        : 'ORIGINAL'
+                      : 'STANDBY'
+                  }
+                  invoiceNumber={standbyPreviewDoc.documentNumber || 'PENDING'}
+                  issuedAt={
+                    standbyPreviewDoc.issuedAt || standbyPreviewDoc.lastPrintedAt || ''
+                  }
+                  orderId={standbyPreviewDoc.orderId || '—'}
+                  lines={standbyLines}
+                  discountAmount={standbyPreviewDoc.discountAmount || '0.00'}
+                  vatableSales={standbyPreviewDoc.vatableSales || '0.00'}
+                  vatAmount={standbyPreviewDoc.vatAmount || '0.00'}
+                  vatExemptSales={standbyPreviewDoc.vatExemptSales || '0.00'}
+                  zeroRatedSales={standbyPreviewDoc.zeroRatedSales || '0.00'}
+                  totalAmount={standbyPreviewDoc.totalAmount || '0.00'}
+                />
               </div>
-              <button
-                type="button"
-                className="btn btn-outline"
-                onClick={() => {
-                  setRecentPage(1);
-                  setIsRecentModalOpen(true);
+
+              {/* Right Column: Inline Live Scan Feed */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '20px'
                 }}
               >
-                <History size={15} /> View Recent Scans {logs.length > 0 ? `(${logs.length})` : ''}
-              </button>
+                {/* Inline Live Scan Feed Card (Top 8 Latest Scans) */}
+                <div className="card-section" style={{ marginBottom: 0, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                  <div>
+                    <div className="card-section-header">
+                      <div>
+                        <h2 className="card-section-title">
+                          <History size={16} style={{ verticalAlign: 'middle', marginRight: '6px' }} />
+                          Recent Scan Activity
+                        </h2>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-outline"
+                        onClick={() => {
+                          setRecentPage(1);
+                          setIsRecentModalOpen(true);
+                        }}
+                      >
+                        <History size={15} /> View All {logs.length > 0 ? `(${logs.length})` : ''}
+                      </button>
+                    </div>
+
+                    {logs.length === 0 ? (
+                      <div
+                        style={{
+                          textAlign: 'center',
+                          padding: '48px 16px',
+                          color: 'var(--text-muted)',
+                          fontSize: '0.84rem'
+                        }}
+                      >
+                        No scans recorded yet. Click <strong>Scan Waybill</strong> above to begin scanning parcels.
+                      </div>
+                    ) : (
+                      <div className="table-responsive" style={{ margin: 0 }}>
+                        <table className="data-table" style={{ fontSize: '0.78rem' }}>
+                          <thead>
+                            <tr>
+                              <th>Time</th>
+                              <th>Waybill</th>
+                              <th>Status</th>
+                              <th>Details</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {logs.slice(0, 8).map((row) => (
+                              <tr key={row.id}>
+                                <td style={{ fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                                  {row.time}
+                                </td>
+                                <td style={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                                  {row.tracking}
+                                </td>
+                                <td>
+                                  <span className={`badge ${row.badge}`}>{row.status}</span>
+                                </td>
+                                <td
+                                  style={{
+                                    maxWidth: '210px',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis'
+                                  }}
+                                  title={row.detail}
+                                >
+                                  {row.detail}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: '16px',
+                      paddingTop: '12px',
+                      borderTop: '1px solid var(--border-color)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      fontSize: '0.78rem',
+                      color: 'var(--text-muted)'
+                    }}
+                  >
+                    <span>Need help with scan verification colors &amp; BIR rules?</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsGuideOpen(true)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        color: 'var(--primary)',
+                        fontWeight: 600,
+                        fontSize: '0.78rem',
+                        cursor: 'pointer',
+                        textDecoration: 'underline'
+                      }}
+                    >
+                      Learn More →
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
+
+          {phase !== 'IDLE' && (
+            <div className="card-section">
+              <div className="card-section-header">
+                <div>
+                  <h2 className="card-section-title">
+                    <History size={16} style={{ verticalAlign: 'middle', marginRight: '6px' }} />
+                    Recent Scan Activity
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={() => {
+                    setRecentPage(1);
+                    setIsRecentModalOpen(true);
+                  }}
+                >
+                  <History size={15} /> View All Recent Scans {logs.length > 0 ? `(${logs.length})` : ''}
+                </button>
+              </div>
+
+              {logs.length > 0 && (
+                <div className="table-responsive" style={{ margin: 0 }}>
+                  <table className="data-table" style={{ fontSize: '0.8rem' }}>
+                    <thead>
+                      <tr>
+                        <th>Time</th>
+                        <th>Waybill</th>
+                        <th>Status</th>
+                        <th>Details</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {logs.slice(0, 5).map((row) => (
+                        <tr key={row.id}>
+                          <td style={{ fontFamily: 'monospace' }}>{row.time}</td>
+                          <td style={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                            {row.tracking}
+                          </td>
+                          <td>
+                            <span className={`badge ${row.badge}`}>{row.status}</span>
+                          </td>
+                          <td>{row.detail}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -1251,107 +1561,289 @@ export default function PackingScanPage() {
           const safePage = Math.min(recentPage, totalPages);
           const startIdx = (safePage - 1) * LOGS_PER_PAGE;
           const pageItems = logs.slice(startIdx, startIdx + LOGS_PER_PAGE);
+          const maxVisiblePages = 5;
+          const pageGroupStart =
+            Math.floor((safePage - 1) / maxVisiblePages) * maxVisiblePages + 1;
+          const pageGroupEnd = Math.min(totalPages, pageGroupStart + maxVisiblePages - 1);
+          const visiblePages = Array.from(
+            { length: pageGroupEnd - pageGroupStart + 1 },
+            (_, i) => pageGroupStart + i
+          );
 
           return (
             <div
-              className="scan-modal-backdrop no-print"
+              className="order-drawer-backdrop no-print"
               onClick={() => setIsRecentModalOpen(false)}
             >
-              <div className="doc-modal-card" onClick={(e) => e.stopPropagation()}>
-                <div className="doc-modal-header">
+              <aside
+                className="order-right-modal"
+                style={{ maxWidth: '560px' }}
+                role="dialog"
+                aria-modal="true"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="modal-header">
                   <div>
-                    <h2 className="card-section-title" style={{ fontSize: '1.15rem' }}>
-                      <History size={17} style={{ verticalAlign: 'middle', marginRight: '6px' }} />
-                      Recent Scan Activity
-                    </h2>
+                    <div className="modal-title-row">
+                      <History size={16} style={{ color: '#0284c7' }} />
+                      <span>Recent Scan Activity</span>
+                    </div>
+                    <p className="modal-subtitle">
+                      Session log of scanned waybills, API status, and print outcomes ({logs.length} total)
+                    </p>
                   </div>
                   <button
                     type="button"
-                    className="scan-modal-close"
-                    style={{ position: 'static' }}
+                    className="btn-close"
                     onClick={() => setIsRecentModalOpen(false)}
                     aria-label="Close"
                   >
-                    <X size={16} />
+                    &times;
                   </button>
                 </div>
 
-                {logs.length === 0 ? (
-                  <p className="page-subtitle" style={{ textAlign: 'center', padding: '32px 0' }}>
-                    No scans recorded in this session yet.
-                  </p>
-                ) : (
-                  <div className="table-responsive">
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th>Time</th>
-                          <th>Waybill</th>
-                          <th>Status</th>
-                          <th>Details</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {pageItems.map((row) => (
-                          <tr key={row.id}>
-                            <td style={{ fontFamily: 'monospace' }}>{row.time}</td>
-                            <td style={{ fontFamily: 'monospace', fontWeight: 700 }}>
-                              {row.tracking}
-                            </td>
-                            <td>
-                              <span className={`badge ${row.badge}`}>{row.status}</span>
-                            </td>
-                            <td>{row.detail}</td>
+                <div className="modal-body" style={{ overflowY: 'auto', padding: '14px 18px' }}>
+                  {logs.length === 0 ? (
+                    <div
+                      style={{
+                        textAlign: 'center',
+                        padding: '48px 16px',
+                        color: '#64748b',
+                        fontSize: '0.82rem'
+                      }}
+                    >
+                      No scans recorded in this session yet.
+                    </div>
+                  ) : (
+                    <div className="table-responsive" style={{ margin: 0 }}>
+                      <table className="data-table" style={{ fontSize: '0.78rem' }}>
+                        <thead>
+                          <tr>
+                            <th>Time</th>
+                            <th>Waybill</th>
+                            <th>Status</th>
+                            <th>Details</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                        </thead>
+                        <tbody>
+                          {pageItems.map((row) => (
+                            <tr key={row.id}>
+                              <td className="num-target" style={{ whiteSpace: 'nowrap', color: '#475569' }}>
+                                {row.time}
+                              </td>
+                              <td className="num-target" style={{ fontWeight: 700, color: '#0f172a' }}>
+                                {row.tracking}
+                              </td>
+                              <td>
+                                <span className={`badge ${row.badge}`}>{row.status}</span>
+                              </td>
+                              <td style={{ color: '#334155', fontSize: '0.75rem' }}>{row.detail}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
 
-                <div className="modal-pagination-bar">
-                  <span className="page-subtitle">
-                    {logs.length === 0
-                      ? 'Showing 0 of 0 scans (10 per page)'
-                      : `Showing ${startIdx + 1}–${Math.min(startIdx + LOGS_PER_PAGE, logs.length)} of ${logs.length} scans`}
-                  </span>
+                <div
+                  className="modal-footer"
+                  style={{
+                    flexDirection: 'column',
+                    alignItems: 'stretch',
+                    gap: '10px',
+                    padding: '12px 18px'
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '8px'
+                    }}
+                  >
+                    <span style={{ fontSize: '0.74rem', color: '#64748b' }}>
+                      {logs.length === 0
+                        ? 'Showing 0 of 0 scans (10 per page)'
+                        : `Showing ${startIdx + 1}–${Math.min(startIdx + LOGS_PER_PAGE, logs.length)} of ${logs.length} scans`}
+                    </span>
 
-                  <div className="modal-pagination-controls">
-                    <button
-                      type="button"
-                      className="btn btn-outline pagination-btn"
-                      disabled={safePage <= 1}
-                      onClick={() => setRecentPage((p) => Math.max(1, p - 1))}
-                    >
-                      Previous
-                    </button>
-
-                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
+                    <div className="modal-pagination-controls">
                       <button
-                        key={pageNum}
                         type="button"
-                        className={`btn pagination-btn ${pageNum === safePage ? 'btn-primary' : 'btn-outline'
-                          }`}
-                        onClick={() => setRecentPage(pageNum)}
+                        className="btn btn-outline pagination-btn"
+                        disabled={safePage <= 1}
+                        onClick={() => setRecentPage((p) => Math.max(1, p - 1))}
                       >
-                        {pageNum}
+                        Previous
                       </button>
-                    ))}
 
-                    <button
-                      type="button"
-                      className="btn btn-outline pagination-btn"
-                      disabled={safePage >= totalPages}
-                      onClick={() => setRecentPage((p) => Math.min(totalPages, p + 1))}
-                    >
-                      Next
-                    </button>
+                      {visiblePages.map((pageNum) => (
+                        <button
+                          key={pageNum}
+                          type="button"
+                          className={`btn pagination-btn ${pageNum === safePage ? 'btn-primary' : 'btn-outline'
+                            }`}
+                          onClick={() => setRecentPage(pageNum)}
+                        >
+                          {pageNum}
+                        </button>
+                      ))}
+
+                      <button
+                        type="button"
+                        className="btn btn-outline pagination-btn"
+                        disabled={safePage >= totalPages}
+                        onClick={() => setRecentPage((p) => Math.min(totalPages, p + 1))}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="modal-btn modal-btn-secondary"
+                    style={{ width: '100%' }}
+                    onClick={() => setIsRecentModalOpen(false)}
+                  >
+                    Close
+                  </button>
+                </div>
+              </aside>
+            </div>
+          );
+        })()}
+
+      {isGuideOpen && (
+        <div
+          className="order-drawer-backdrop no-print"
+          onClick={() => setIsGuideOpen(false)}
+        >
+          <aside
+            className="order-right-modal"
+            style={{ maxWidth: '500px' }}
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                  <span className="badge badge-emerald">Scanner Ready</span>
+                  <span className="badge badge-primary">BIR RMC 98-2026</span>
+                </div>
+                <div className="modal-title-row">
+                  <span>Station Status &amp; Packing Guide</span>
+                </div>
+                <p className="modal-subtitle">
+                  Automatic BIR RMC 98-2026 verification rules on every barcode scan.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-close"
+                onClick={() => setIsGuideOpen(false)}
+                aria-label="Close"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ overflowY: 'auto', padding: '18px' }}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr',
+                  gap: '12px'
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '10px',
+                    padding: '12px 14px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'rgba(16, 185, 129, 0.08)',
+                    border: '1px solid rgba(16, 185, 129, 0.22)'
+                  }}
+                >
+                  <CheckCircle2
+                    size={18}
+                    style={{ color: '#10b981', flexShrink: 0, marginTop: '2px' }}
+                  />
+                  <div style={{ fontSize: '0.84rem' }}>
+                    <strong style={{ color: '#065f46' }}>Green — Order OK &amp; Print</strong>
+                    <div style={{ color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.45 }}>
+                      Issues BIR E-Invoice, prints 100×150mm thermal slip, and moves order from Orders Queue to Invoices Tracker.
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '10px',
+                    padding: '12px 14px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'rgba(245, 158, 11, 0.08)',
+                    border: '1px solid rgba(245, 158, 11, 0.24)'
+                  }}
+                >
+                  <Clock
+                    size={18}
+                    style={{ color: '#d97706', flexShrink: 0, marginTop: '2px' }}
+                  />
+                  <div style={{ fontSize: '0.84rem' }}>
+                    <strong style={{ color: '#92400e' }}>Amber — Unpaid or Waiting Sync (202)</strong>
+                    <div style={{ color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.45 }}>
+                      Auto-retries every 3s up to 60s if not synced yet, or holds parcel if payment is unconfirmed.
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '10px',
+                    padding: '12px 14px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'rgba(225, 29, 72, 0.07)',
+                    border: '1px solid rgba(225, 29, 72, 0.22)'
+                  }}
+                >
+                  <XOctagon
+                    size={18}
+                    style={{ color: '#e11d48', flexShrink: 0, marginTop: '2px' }}
+                  />
+                  <div style={{ fontSize: '0.84rem' }}>
+                    <strong style={{ color: '#9f1239' }}>Red — Do Not Ship / Blocked</strong>
+                    <div style={{ color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.45 }}>
+                      Cancelled/returned order, duplicate tracking (409), or store before start date — set parcel aside immediately.
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          );
-        })()}
+
+            <div className="modal-footer" style={{ padding: '12px 18px' }}>
+              <button
+                type="button"
+                className="modal-btn modal-btn-secondary"
+                style={{ width: '100%' }}
+                onClick={() => setIsGuideOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+          </aside>
+        </div>
+      )}
 
       {isScanOpen && (
         <div
