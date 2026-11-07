@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { NotificationProvider } from './context/NotificationContext';
 import LoginPage from './pages/LoginPage';
@@ -12,9 +12,46 @@ import ApiTesterPage from './pages/ApiTesterPage';
 import CreditNotesPage from './pages/CreditNotesPage';
 import ErrorBoundary from './components/feedback/ErrorBoundary';
 
+const STORAGE_KEY_ACTIVE_PAGE = 'invoicehub_active_page';
+const VALID_PAGES = new Set([
+  'dashboard',
+  'packing-scan',
+  'orders',
+  'invoices',
+  'credit-notes',
+  'settings',
+  'api-tester'
+]);
+
 function AppContent() {
   const { isAuthenticated, loading } = useAuth();
-  const [activePage, setActivePage] = useState('dashboard');
+  const [activePage, setActivePage] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_ACTIVE_PAGE);
+      return saved && VALID_PAGES.has(saved) ? saved : 'dashboard';
+    } catch {
+      return 'dashboard';
+    }
+  });
+
+  useEffect(() => {
+    try {
+      if (VALID_PAGES.has(activePage)) {
+        localStorage.setItem(STORAGE_KEY_ACTIVE_PAGE, activePage);
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }, [activePage]);
+
+  useEffect(() => {
+    document.title = '\u200B';
+    const clearTitleForPrint = () => {
+      document.title = '\u200B';
+    };
+    window.addEventListener('beforeprint', clearTitleForPrint);
+    return () => window.removeEventListener('beforeprint', clearTitleForPrint);
+  }, []);
 
   if (loading) {
     return (

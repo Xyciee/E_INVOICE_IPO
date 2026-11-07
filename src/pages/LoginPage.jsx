@@ -60,10 +60,38 @@ export default function LoginPage() {
       <div className="login-bg-glow-2" />
 
       <div className="login-card">
-        {/* Brand Header */}
-        <div className="login-header">
-          <h1 className="login-title">ISC E-Invoice System</h1>
-          <p className="login-subtitle">Sign in to your administration dashboard</p>
+        {/* Brand Header - Outfit Variant */}
+        <div
+          className="login-header"
+          style={{
+            textAlign: 'center',
+            fontFamily: "'Outfit', sans-serif"
+          }}
+        >
+          <div
+            style={{
+              fontSize: '1.875rem',
+              lineHeight: '2.25rem',
+              fontWeight: 700,
+              letterSpacing: '-0.025em'
+            }}
+          >
+            <span style={{ color: '#2563eb' }}>E</span>
+            <span style={{ color: '#94a3b8', fontWeight: 300 }}>-</span>
+            <span style={{ color: '#0f172a' }}>invoice</span>
+          </div>
+          <div
+            style={{
+              fontSize: '9px',
+              fontWeight: 800,
+              letterSpacing: '0.35em',
+              color: '#64748b',
+              textTransform: 'lowercase',
+              marginTop: '2px'
+            }}
+          >
+            AUTHENTICATION
+          </div>
         </div>
 
         {/* Error Alert */}

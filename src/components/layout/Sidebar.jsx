@@ -5,11 +5,9 @@ import {
   ShoppingCart,
   Receipt,
   FileMinus,
-  Settings,
   ChevronLeft,
   ChevronRight,
   LogOut,
-  Terminal,
   X
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -81,23 +79,6 @@ export default function Sidebar({
           id: 'credit-notes',
           label: 'Credit Notes',
           icon: FileMinus,
-        }
-      ]
-    },
-    {
-      group: 'System',
-      items: [
-        {
-          id: 'api-tester',
-          label: 'API Tester',
-          icon: Terminal,
-          badge: null
-        },
-        {
-          id: 'settings',
-          label: 'Settings',
-          icon: Settings,
-          badge: null
         }
       ]
     }

@@ -22,6 +22,7 @@ import {
   normalizeDocumentRecord,
   getPrintedInvoiceRecords
 } from '../services/scanService';
+import PlatformBadge from '../components/PlatformBadge';
 import './pages.css';
 import './DashboardPage.css';
 
@@ -223,7 +224,7 @@ function TrendChart({ invoices, range }) {
               x2={width}
               y1={top + step * (height - top - bottom)}
               y2={top + step * (height - top - bottom)}
-              stroke="#e9edf5"
+              stroke="var(--border-light)"
               strokeDasharray="4 5"
             />
           ))}
@@ -272,7 +273,7 @@ function TrendChart({ invoices, range }) {
                   r={hovered === i ? 5 : 3}
                   stroke="#4d70ee"
                   strokeWidth="2"
-                  fill="#fff"
+                  fill="var(--bg-surface)"
                   vectorEffect="non-scaling-stroke"
                 />
               )}
@@ -372,7 +373,7 @@ function OrderHeatmap({ orders }) {
             flexShrink: 0,
             fontSize: '9.5px',
             fontWeight: 600,
-            color: '#8895a9'
+            color: 'var(--text-muted)'
           }}
         >
           {rowLabels.map((lbl, idx) => (
@@ -677,7 +678,7 @@ export default function DashboardPage({ onNavigate }) {
             style={{
               flexShrink: 0,
               border: 'none',
-              borderBottom: '1px solid #eef1f7',
+              borderBottom: '1px solid var(--border-light)',
               borderRadius: 0,
               padding: '0 0 10px 0',
               background: 'transparent'
@@ -801,7 +802,7 @@ export default function DashboardPage({ onNavigate }) {
                 justifyContent: 'space-between',
                 minHeight: 0,
                 minWidth: 0,
-                borderLeft: '1px solid #eef1f7',
+                borderLeft: '1px solid var(--border-light)',
                 paddingLeft: '18px',
                 overflow: 'hidden'
               }}
@@ -820,7 +821,7 @@ export default function DashboardPage({ onNavigate }) {
                   style={{
                     background: total
                       ? `conic-gradient(#f59e0b 0 ${(breakdown[0].count / total) * 100
-                      }%, #202936 ${(breakdown[0].count / total) * 100}% ${((breakdown[0].count + breakdown[1].count) / total) *
+                      }%, #3b82f6 ${(breakdown[0].count / total) * 100}% ${((breakdown[0].count + breakdown[1].count) / total) *
                       100
                       }%, #6658e8 ${((breakdown[0].count + breakdown[1].count) / total) *
                       100
@@ -835,7 +836,7 @@ export default function DashboardPage({ onNavigate }) {
                         total) *
                       100
                       }% 100%)`
-                      : '#edf1f7'
+                      : 'var(--border-light)'
                   }}
                 >
                   <div>
@@ -845,12 +846,9 @@ export default function DashboardPage({ onNavigate }) {
                 </div>
               </div>
               <div className="dash-market-list">
-                {breakdown.map((item, i) => (
+                {breakdown.map((item) => (
                   <div key={item.name} className="dash-market-row">
-                    <span>
-                      <i className={`dash-market-dot dot-${i}`} />
-                      {item.name}
-                    </span>
+                    <PlatformBadge platform={item.name} printed hideStatus />
                     <strong>
                       {number(item.count)}{' '}
                       <small>
@@ -873,7 +871,7 @@ export default function DashboardPage({ onNavigate }) {
                 justifyContent: 'space-between',
                 minHeight: 0,
                 minWidth: 0,
-                borderLeft: '1px solid #eef1f7',
+                borderLeft: '1px solid var(--border-light)',
                 paddingLeft: '18px',
                 overflow: 'hidden'
               }}
@@ -929,7 +927,7 @@ export default function DashboardPage({ onNavigate }) {
                       cy="56"
                       r="46"
                       fill="none"
-                      stroke="#edf1f8"
+                      stroke="var(--border-light)"
                       strokeWidth="12"
                     />
                     <circle
@@ -963,13 +961,13 @@ export default function DashboardPage({ onNavigate }) {
                         fontSize: '21px',
                         fontWeight: 800,
                         letterSpacing: '-0.8px',
-                        color: '#1e293b',
+                        color: 'var(--text-main)',
                         lineHeight: 1.1
                       }}
                     >
                       {completion}%
                     </strong>
-                    <span style={{ fontSize: '10px', color: '#99a5b6' }}>
+                    <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
                       completed
                     </span>
                   </div>
@@ -1098,12 +1096,6 @@ export default function DashboardPage({ onNavigate }) {
         >
           <div className="dash-stat-top">
             <span>Order Activity</span>
-            <span
-              className="dash-panel-icon"
-              style={{ width: '26px', height: '26px' }}
-            >
-              <CalendarDays size={15} />
-            </span>
           </div>
           <OrderHeatmap orders={filteredAll} />
         </section>
@@ -1123,12 +1115,6 @@ export default function DashboardPage({ onNavigate }) {
         >
           <div className="dash-stat-top">
             <span>Invoice Activity Logs</span>
-            <span
-              className="dash-panel-icon"
-              style={{ width: '26px', height: '26px' }}
-            >
-              <Activity size={15} />
-            </span>
           </div>
           <div
             className="dash-activity-list"

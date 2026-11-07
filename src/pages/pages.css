@@ -1335,3 +1335,314 @@
   width: 10px;
   height: 10px;
 }
+
+/* ==========================================================================
+   Clean UI (Inter) Right-Side Order Modal
+   ========================================================================== */
+.order-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(3px);
+  z-index: 250;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.order-right-modal {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  max-width: 490px;
+  height: 100vh;
+  max-height: 100vh;
+  background: #ffffff;
+  color: #0f172a;
+  font-family: 'Inter', sans-serif;
+  z-index: 260;
+  display: flex;
+  flex-direction: column;
+  box-shadow: -10px 0 30px rgba(0, 0, 0, 0.25);
+  border-left: 1px solid #e2e8f0;
+  overflow: hidden;
+  animation: slideInRight 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.order-right-modal .num-target {
+  font-family: 'Inter', sans-serif !important;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-feature-settings: 'tnum';
+  font-feature-settings: 'tnum';
+  letter-spacing: -0.02em;
+}
+
+.order-right-modal .modal-header {
+  padding: 12px 18px;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  background: #fafafa;
+  flex-shrink: 0;
+}
+
+.order-right-modal .shopee-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  color: #475569;
+  border: none;
+  font-size: 0.66rem;
+  font-weight: 700;
+  padding: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 4px;
+}
+
+.order-right-modal .modal-title-row {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.order-right-modal .order-id-badge {
+  color: #0f172a;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 0.98rem;
+  font-weight: 700;
+}
+
+.order-right-modal .modal-subtitle {
+  font-size: 0.72rem;
+  color: #64748b;
+  margin-top: 3px;
+}
+
+.order-right-modal .btn-close {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.order-right-modal .btn-close:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.order-right-modal .modal-body {
+  padding: 12px 18px;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.order-right-modal .section-title {
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.order-right-modal .meta-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+}
+
+.order-right-modal .meta-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.order-right-modal .meta-lbl {
+  font-size: 0.63rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.order-right-modal .meta-val {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.order-right-modal .meta-val.highlight {
+  color: #0f172a;
+}
+
+.order-right-modal .item-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 9px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: #ffffff;
+}
+
+.order-right-modal .item-name {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #1e293b;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.order-right-modal .sku-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #475569;
+  width: fit-content;
+}
+
+.order-right-modal .sku-pill span {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.order-right-modal .item-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.76rem;
+  margin-top: 1px;
+}
+
+.order-right-modal .item-table th {
+  text-align: right;
+  font-weight: 600;
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  color: #64748b;
+  padding-bottom: 3px;
+}
+
+.order-right-modal .item-table td {
+  text-align: right;
+  padding: 2px 0;
+  color: #1e293b;
+}
+
+.order-right-modal .item-table th:first-child,
+.order-right-modal .item-table td:first-child {
+  text-align: left;
+}
+
+.order-right-modal .totals-box {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.order-right-modal .totals-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  font-size: 0.76rem;
+  border-bottom: 1px solid #f1f5f9;
+  color: #334155;
+}
+
+.order-right-modal .totals-row.discount {
+  color: #16a34a;
+}
+
+.order-right-modal .totals-row.grand-total {
+  background: #fafafa;
+  border-bottom: none;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.order-right-modal .total-amount-display {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0284c7;
+}
+
+.order-right-modal .modal-footer {
+  padding: 10px 18px;
+  border-top: 1px solid #e2e8f0;
+  background: #ffffff;
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.order-right-modal .modal-btn {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  transition: background 0.15s ease;
+}
+
+.order-right-modal .modal-btn-secondary {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+  flex: 1;
+}
+
+.order-right-modal .modal-btn-secondary:hover {
+  background: #f8fafc;
+}
+
+.order-right-modal .modal-btn-primary {
+  background: #0284c7;
+  color: #ffffff;
+  flex: 2;
+}
+
+.order-right-modal .modal-btn-primary:hover {
+  background: #0369a1;
+}

@@ -5,15 +5,13 @@ import {
   RefreshCw,
   FileText,
   Printer,
-  Package,
   Calendar,
   Download,
   CheckCircle2,
   Copy,
   Check,
   Eye,
-  ChevronDown,
-  X
+  ChevronDown
 } from 'lucide-react';
 import {
   fetchActiveUnprintedOrders,
@@ -27,18 +25,25 @@ import {
   getExportDownloadUrl
 } from '../services/scanService';
 import WaybillTicket from '../components/WaybillTicket';
+import PlatformBadge from '../components/PlatformBadge';
 import './pages.css';
 
 const FILTER_TABS = ['All Unprinted', "Today's Orders", 'TikTok', 'Shopee', 'Lazada'];
 const ITEMS_PER_PAGE = 5;
 const MAX_VISIBLE_PAGES = 5;
 
-function getPlatformBadge(platform) {
-  const p = String(platform || '').toLowerCase();
-  if (p.includes('tiktok')) return 'badge-primary';
-  if (p.includes('shopee')) return 'badge-amber';
-  if (p.includes('lazada')) return 'badge-emerald';
-  return 'badge-primary';
+function getStatusBadge(status, holdReason = null) {
+  const s = String(status || '').trim().toUpperCase();
+  if (s === 'DUE' || s.includes('CANCEL') || s.includes('RETURN') || s.includes('BLOCK')) {
+    return 'badge-rose';
+  }
+  if (s === 'HOLD' || s.includes('HOLD') || s.includes('UNPAID') || holdReason) {
+    return 'badge-amber';
+  }
+  if (s === 'WAITING' || s.includes('WAIT') || s.includes('PENDING')) {
+    return 'badge-info';
+  }
+  return 'badge-emerald';
 }
 
 function getManilaDateKey(dateValue) {
@@ -511,23 +516,20 @@ export default function OrdersPage() {
             ₱{totalPendingAmount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className="stat-card-footer">
-            <span className="badge badge-amber">Waiting for Waybill Scan</span>
+            <span className="trend-description">Waiting for Waybill Scan</span>
           </div>
         </div>
 
         <div className="stat-card">
           <div className="stat-card-header">
             <span className="stat-card-label">Printed & Moved to Tracker</span>
-            <div
-              className="stat-card-icon-wrap"
-              style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}
-            >
+            <div className="stat-card-icon-wrap">
               <Printer size={20} />
             </div>
           </div>
           <div className="stat-card-value">{printedTrackerCount}</div>
           <div className="stat-card-footer">
-            <span className="badge badge-emerald">In Invoices Tracker</span>
+            <span className="trend-description">In Invoices Tracker</span>
           </div>
         </div>
       </div>
@@ -542,10 +544,8 @@ export default function OrdersPage() {
         <div className="card-section-header" style={{ flexWrap: 'wrap', gap: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <h2 className="card-section-title">
-              <Calendar size={16} style={{ verticalAlign: 'middle', marginRight: '6px' }} />
               Active Unprinted Orders List
             </h2>
-            <span className="badge badge-primary">Live API Sync</span>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', flex: 1, justifyContent: 'flex-end' }}>
@@ -651,23 +651,32 @@ export default function OrdersPage() {
                       <td>
                         <strong
                           style={{
-                            fontFamily: 'monospace',
-                            fontSize: '0.9rem',
+                            fontSize: '0.88rem',
                             color: 'var(--primary)'
                           }}
                         >
                           {ord.orderId !== '—' ? ord.orderId : ord.documentNumber}
                         </strong>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                          {ord.documentNumber && ord.documentNumber !== '—'
-                            ? `Doc: ${ord.documentNumber}`
-                            : `State: ${String(ord.invoiceState || 'due').toUpperCase()}`}
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          {ord.documentNumber && ord.documentNumber !== '—' ? (
+                            `Doc: ${ord.documentNumber}`
+                          ) : (
+                            <>
+                              <span>State:</span>
+                              <span
+                                className={`badge ${getStatusBadge(ord.invoiceState || 'due', ord.holdReason)}`}
+                                style={{ fontSize: '0.65rem', padding: '1px 6px' }}
+                              >
+                                {String(ord.invoiceState || 'due').toUpperCase()}
+                              </span>
+                            </>
+                          )}
                         </div>
                       </td>
 
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                          <span style={{ fontWeight: 700 }}>
                             {ord.tracking || '—'}
                           </span>
                           {ord.tracking && ord.tracking !== '—' && (
@@ -689,9 +698,7 @@ export default function OrdersPage() {
                       </td>
 
                       <td>
-                        <span className={`badge ${getPlatformBadge(ord.platform)}`}>
-                          {ord.platform}
-                        </span>
+                        <PlatformBadge platform={ord.platform} />
                         <div style={{ fontSize: '0.76rem', marginTop: '4px', fontWeight: 600 }}>
                           {ord.storeName}
                         </div>
@@ -728,8 +735,7 @@ export default function OrdersPage() {
 
                       <td>
                         <span
-                          className={`badge ${ord.holdReason ? 'badge-amber' : 'badge-emerald'
-                            }`}
+                          className={`badge ${getStatusBadge(ord.status, ord.holdReason)}`}
                         >
                           {ord.status}
                         </span>
@@ -837,157 +843,179 @@ export default function OrdersPage() {
         </div>
       </div>
 
-      {/* Order Details Modal */}
+      {/* Order Details Right Side Modal - Clean UI (Inter) */}
       {selectedOrder && (
         <div
-          className="scan-modal-backdrop no-print"
+          className="order-drawer-backdrop no-print"
           onClick={() => setSelectedOrder(null)}
         >
-          <div className="doc-modal-card" onClick={(e) => e.stopPropagation()}>
-            <div className="doc-modal-header">
+          <aside
+            className="order-right-modal"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="modal-header">
               <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span className={`badge ${getPlatformBadge(selectedOrder.platform)}`}>
-                    {selectedOrder.platform}
+                <div style={{ marginBottom: '4px' }}>
+                  <PlatformBadge platform={selectedOrder.platform} />
+                </div>
+                <div className="modal-title-row">
+                  <span>Order</span>
+                  <span className="order-id-badge num-target">
+                    #{selectedOrder.orderId !== '—' ? selectedOrder.orderId : selectedOrder.documentNumber}
                   </span>
-                  <span className="badge badge-emerald">{selectedOrder.status}</span>
                 </div>
-                <h2
-                  style={{
-                    fontSize: '1.25rem',
-                    fontWeight: 800,
-                    marginTop: '8px',
-                    fontFamily: 'monospace'
-                  }}
-                >
-                  Order #{selectedOrder.orderId !== '—' ? selectedOrder.orderId : selectedOrder.documentNumber}
-                </h2>
-                <div className="page-subtitle">
-                  Waybill: {selectedOrder.tracking} · Date: {selectedOrder.orderDate !== '—' ? selectedOrder.orderDate : selectedOrder.issuedAt}
+                <p className="modal-subtitle">
+                  Waybill: <span className="num-target">{selectedOrder.tracking}</span> &middot; Date:{' '}
+                  <span className="num-target">
+                    {selectedOrder.orderDate !== '—' ? selectedOrder.orderDate : selectedOrder.issuedAt}
+                  </span>
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-close"
+                onClick={() => setSelectedOrder(null)}
+                aria-label="Close"
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="modal-body">
+              {detailLoading && (
+                <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>
+                  Loading complete order draft & product items...
+                </p>
+              )}
+
+              {detailError && (
+                <p style={{ color: '#e11d48', margin: 0, fontSize: '0.75rem' }}>
+                  {detailError}
+                </p>
+              )}
+
+              {/* Metadata */}
+              <div>
+                <div className="section-title">Channel &amp; Buyer Information</div>
+                <div className="meta-box">
+                  <div className="meta-col">
+                    <span className="meta-lbl">Store</span>
+                    <span className="meta-val">
+                      {selectedOrder.platform} &middot; {selectedOrder.storeName}
+                    </span>
+                  </div>
+                  <div className="meta-col">
+                    <span className="meta-lbl">Buyer</span>
+                    <span className="meta-val">{selectedOrder.buyerName}</span>
+                  </div>
+                  <div className="meta-col">
+                    <span className="meta-lbl">Order ID</span>
+                    <span className="meta-val highlight num-target">{selectedOrder.orderId}</span>
+                  </div>
+                  <div className="meta-col">
+                    <span className="meta-lbl">Waybill Tracking</span>
+                    <span className="meta-val num-target">{selectedOrder.tracking}</span>
+                  </div>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  style={{ fontSize: '0.78rem', padding: '6px 12px' }}
-                  onClick={() => handlePrintAndMoveToTracker(selectedOrder)}
-                >
-                  <Printer size={14} /> Print E-Invoice & Move to Tracker
-                </button>
-                <button
-                  type="button"
-                  className="scan-modal-close"
-                  style={{ position: 'static' }}
-                  onClick={() => setSelectedOrder(null)}
-                  aria-label="Close"
-                >
-                  <X size={16} />
-                </button>
+              {/* Item Card */}
+              <div>
+                <div className="section-title">
+                  Product Ordered by Customer ({getDisplayLines(selectedOrder).length})
+                </div>
+                {getDisplayLines(selectedOrder)
+                  .slice(0, 2)
+                  .map((line, i) => (
+                    <div
+                      key={line.id || i}
+                      className="item-card"
+                      style={i > 0 ? { marginTop: '8px' } : undefined}
+                    >
+                      <div className="item-name">{line.productName}</div>
+
+                      {line.sku && (
+                        <div>
+                          <div className="sku-pill">
+                            SKU: <span className="num-target">{line.sku}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      <table className="item-table">
+                        <thead>
+                          <tr>
+                            <th style={{ width: '15%' }}>Qty</th>
+                            <th>Unit Price</th>
+                            <th>12% VAT</th>
+                            <th>Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td className="num-target" style={{ fontWeight: 700 }}>
+                              {line.qty}
+                            </td>
+                            <td className="num-target">₱{line.unitPrice}</td>
+                            <td className="num-target">₱{line.vatAmount}</td>
+                            <td className="num-target" style={{ fontWeight: 700 }}>
+                              ₱{line.lineTotal}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+              </div>
+
+              {/* Financial Tax Breakdown */}
+              <div>
+                <div className="section-title">Tax Valuation &amp; Settlement</div>
+                <div className="totals-box">
+                  <div className="totals-row discount">
+                    <span>Discount / Voucher</span>
+                    <span className="num-target">-₱{selectedOrder.discountAmount || '0.00'}</span>
+                  </div>
+                  <div className="totals-row">
+                    <span>VATable Sales (Net of VAT)</span>
+                    <span className="num-target">₱{selectedOrder.vatableSales}</span>
+                  </div>
+                  <div className="totals-row">
+                    <span>12% VAT Amount</span>
+                    <span className="num-target">₱{selectedOrder.vatAmount}</span>
+                  </div>
+                  <div className="totals-row grand-total">
+                    <span>Total Amount (VAT Inc.)</span>
+                    <span className="total-amount-display num-target">
+                      ₱{selectedOrder.totalAmount}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
 
-            {detailLoading && (
-              <p className="page-subtitle" style={{ marginBottom: '12px' }}>
-                Loading complete order draft & product items...
-              </p>
-            )}
-
-            {detailError && (
-              <p style={{ color: '#e11d48', marginBottom: '12px', fontSize: '0.85rem' }}>
-                {detailError}
-              </p>
-            )}
-
-            <div className="order-summary-grid">
-              <div>
-                <div className="order-field-label">Store</div>
-                <div className="order-field-val">
-                  {selectedOrder.platform} · {selectedOrder.storeName}
-                </div>
-              </div>
-              <div>
-                <div className="order-field-label">Order ID</div>
-                <div className="order-field-val" style={{ fontFamily: 'monospace' }}>
-                  {selectedOrder.orderId}
-                </div>
-              </div>
-              <div>
-                <div className="order-field-label">Waybill Tracking</div>
-                <div className="order-field-val" style={{ fontFamily: 'monospace' }}>
-                  {selectedOrder.tracking}
-                </div>
-              </div>
-              <div>
-                <div className="order-field-label">Buyer</div>
-                <div className="order-field-val">{selectedOrder.buyerName}</div>
-              </div>
-              <div>
-                <div className="order-field-label">Discount / Voucher</div>
-                <div className="order-field-val">-₱{selectedOrder.discountAmount || '0.00'}</div>
-              </div>
-              <div>
-                <div className="order-field-label">VATable Sales (Net)</div>
-                <div className="order-field-val">₱{selectedOrder.vatableSales}</div>
-              </div>
-              <div>
-                <div className="order-field-label">12% VAT Amount</div>
-                <div className="order-field-val" style={{ color: 'var(--accent-emerald)' }}>
-                  ₱{selectedOrder.vatAmount}
-                </div>
-              </div>
-              <div>
-                <div className="order-field-label">Total Amount (VAT Inc.)</div>
-                <div className="order-field-val" style={{ color: 'var(--primary)' }}>
-                  ₱{selectedOrder.totalAmount}
-                </div>
-              </div>
+            {/* Sticky Footer */}
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="modal-btn modal-btn-secondary"
+                onClick={() => setSelectedOrder(null)}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                className="modal-btn modal-btn-primary"
+                onClick={() => handlePrintAndMoveToTracker(selectedOrder)}
+              >
+                Print E-Invoice &amp; Move to Tracker
+              </button>
             </div>
-
-            <div className="doc-section-block">
-              <div className="doc-section-heading">
-                <Package size={15} /> Product Ordered by Customer ({getDisplayLines(selectedOrder).length})
-              </div>
-              <div className="table-responsive">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Product / SKU</th>
-                      <th>Qty</th>
-                      <th>Unit Price</th>
-                      <th>12% VAT</th>
-                      <th>Line Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {getDisplayLines(selectedOrder).map((line, i) => (
-                      <tr key={line.id || i}>
-                        <td>
-                          <strong>{line.productName}</strong>
-                          {line.sku && (
-                            <div
-                              style={{
-                                fontSize: '0.72rem',
-                                color: 'var(--text-muted)',
-                                fontFamily: 'monospace'
-                              }}
-                            >
-                              SKU: {line.sku}
-                            </div>
-                          )}
-                        </td>
-                        <td>{line.qty}</td>
-                        <td>₱{line.unitPrice}</td>
-                        <td>₱{line.vatAmount}</td>
-                        <td style={{ fontWeight: 700 }}>₱{line.lineTotal}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+          </aside>
         </div>
       )}
 
