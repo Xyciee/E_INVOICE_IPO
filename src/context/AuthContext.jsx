@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { apiLogin, apiLogout, apiCheckSession, getCsrfToken } from '../services/authService';
+import { clearApiCache } from '../services/apiClient';
 
 const AuthContext = createContext(null);
 
@@ -15,6 +16,7 @@ export function AuthProvider({ children }) {
     async function initSession() {
       // Remove any leftover fake/demo session from older builds
       localStorage.removeItem('invoicehub_auth_user');
+      clearApiCache();
 
       getCsrfToken().catch(() => {});
 
@@ -38,6 +40,7 @@ export function AuthProvider({ children }) {
   const login = async (username, password) => {
     // Do NOT toggle global `loading` here — App.jsx would unmount LoginPage
     // and the error message would be lost. LoginPage shows its own spinner.
+    clearApiCache(); // never show the previous person's data on this PC
     const result = await apiLogin(username, password);
 
     if (result.success) {
@@ -56,6 +59,7 @@ export function AuthProvider({ children }) {
     try {
       await apiLogout();
     } finally {
+      clearApiCache();
       setUser(null);
     }
   };

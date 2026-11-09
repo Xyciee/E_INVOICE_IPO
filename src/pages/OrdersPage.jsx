@@ -12,10 +12,16 @@ import {
   Check,
   Eye,
   ChevronDown,
-  Gauge
+  Gauge,
+  MapPin
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { useNotify } from '../context/NotificationContext';
 import {
   fetchActiveUnprintedOrders,
+  getSavedStationCode,
+  saveStationCode,
+  stationCodesOf,
   fetchDocumentDetails,
   fetchOrderDraft,
   issueMissedScanOrder,
@@ -62,6 +68,33 @@ function getManilaDateKey(dateValue) {
   }
 }
 
+function formatManilaTime(value) {
+  if (!value) return '';
+  try {
+    return new Date(value).toLocaleString('en-PH', {
+      timeZone: 'Asia/Manila',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch {
+    return String(value);
+  }
+}
+
+/** Plain-English error text from an API error body ({message}, {detail} or {field: "text"}). */
+function apiErrorText(data, fallback) {
+  if (!data) return fallback;
+  if (typeof data === 'string') return data;
+  const direct = data.message || data.detail || data.problem;
+  if (direct) return String(direct);
+  const fieldText = Object.values(data).find((v) => typeof v === 'string' && v.trim());
+  if (fieldText) return fieldText;
+  const first = Object.values(data).find((v) => Array.isArray(v) && v.length);
+  return first ? String(first[0]) : fallback;
+}
+
 function getTodayManilaKey() {
   try {
     return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
@@ -71,6 +104,17 @@ function getTodayManilaKey() {
 }
 
 export default function OrdersPage({ onNavigate }) {
+  const { user } = useAuth();
+  const notify = useNotify();
+  const stationCodes = stationCodesOf(user?.stations);
+  const [station, setStation] = useState('');
+  const savedStation = getSavedStationCode();
+  // The profile (user.stations) may arrive after the first render: fall back to this PC's saved station.
+  const activeStation = stationCodes.includes(station)
+    ? station
+    : stationCodes.includes(savedStation)
+      ? savedStation
+      : stationCodes[0] || '';
   const [activeFilter, setActiveFilter] = useState('All Unprinted');
   const [queryInput, setQueryInput] = useState('');
   const [orders, setOrders] = useState([]);
@@ -151,8 +195,8 @@ export default function OrdersPage({ onNavigate }) {
     if (!ord) return ord;
     let updated = { ...ord };
 
-    const canFetchDoc = Boolean(ord.id && !ord.raw?._source_order_id);
-    const lookupOrderId = ord.raw?._source_order_id || ord.orderId;
+    const canFetchDoc = Boolean(ord.id);
+    const lookupOrderId = ord.orderId;
     const canFetchDraft =
       (!ord.lines || ord.lines.length === 0) &&
       Boolean(ord.platform && ord.storeId && lookupOrderId && lookupOrderId !== '—');
@@ -233,41 +277,72 @@ export default function OrdersPage({ onNavigate }) {
     let issuedDocNumber = target.documentNumber;
     let issuedDocId = target.id;
 
-    if (
-      (!issuedDocNumber || issuedDocNumber === '—') &&
-      target.platform &&
-      target.storeId &&
-      target.orderId &&
-      target.orderId !== '—'
-    ) {
-      const issueRes = await issueMissedScanOrder(
-        target.platform,
-        target.storeId,
-        target.orderId
-      );
-      if (issueRes.ok && issueRes.data) {
-        const issuedNorm = normalizeDocumentRecord(issueRes.data);
-        if (issuedNorm) {
-          issuedDocNumber = issuedNorm.documentNumber;
-          issuedDocId = issuedNorm.id;
-        }
-      }
+    if (!activeStation) {
+      notify.danger('Choose your station', 'Pick your packing station at the top of this page first.');
+      return;
     }
 
-    if (issuedDocId) {
-      await logInvoicePrint(issuedDocId, {
-        reason: null,
-        note: 'Printed from Orders Module'
+    if (!issuedDocNumber || issuedDocNumber === '—') {
+      if (!target.platform || !target.storeId || !target.orderId || target.orderId === '—') {
+        notify.danger('Cannot issue', 'This row has no order to invoice. Refresh the list and try again.');
+        return;
+      }
+      if (!target.tracking || target.tracking === '—') {
+        notify.danger(
+          'No waybill yet',
+          `Order ${target.orderId} has no waybill number yet. Scan it at the packing station when it is packed.`
+        );
+        return;
+      }
+      const issueRes = await issueMissedScanOrder(target.platform, target.storeId, target.orderId, {
+        tracking: target.tracking,
+        station: activeStation
       });
+      if (!issueRes.ok) {
+        notify.danger('Invoice not issued', apiErrorText(issueRes.data, `The server said ${issueRes.status}.`));
+        return;
+      }
+      if (issueRes.data?.outcome === 'blocked') {
+        notify.danger('Invoice not issued', issueRes.data.problem || 'This order cannot be invoiced yet.');
+        return;
+      }
+      const issuedNorm = issueRes.data ? normalizeDocumentRecord(issueRes.data) : null;
+      issuedDocNumber = issuedNorm?.documentNumber;
+      issuedDocId = issuedNorm?.id;
+    }
+
+    // Never print or "move to tracker" without the real invoice number from the backend.
+    if (!issuedDocId || !issuedDocNumber || issuedDocNumber === '—') {
+      notify.danger('Invoice not issued', 'No invoice number came back, so nothing was printed. Tell IT.');
+      return;
+    }
+
+    const printRes = await logInvoicePrint(issuedDocId, {
+      reason: null,
+      note: 'Printed from Orders Module',
+      stationCode: activeStation
+    });
+    if (printRes.printOutcome === 'REASON_REQUIRED_400') {
+      notify.danger(
+        'Already printed',
+        `Invoice ${issuedDocNumber} was already printed (maybe at another station). To print it again, scan the waybill at the packing station and choose a reason.`
+      );
+      loadUnprintedOrders(queryInputRef.current);
+      return;
+    }
+    if (!printRes.ok) {
+      notify.danger(
+        'Not printed',
+        apiErrorText(printRes.data, `The server did not record the print (${printRes.status}). Nothing was printed.`)
+      );
+      loadUnprintedOrders(queryInputRef.current);
+      return;
     }
 
     const finalRecord = {
       ...target,
-      id: issuedDocId || target.id,
-      documentNumber:
-        issuedDocNumber && issuedDocNumber !== '—'
-          ? issuedDocNumber
-          : `EINV-${target.orderId !== '—' ? target.orderId : Date.now()}`
+      id: issuedDocId,
+      documentNumber: issuedDocNumber
     };
 
     savePrintedInvoiceRecord(finalRecord, {
@@ -396,6 +471,28 @@ export default function OrdersPage({ onNavigate }) {
           <h1 className="page-title">Daily Orders Queue</h1>
         </div>
         <div className="page-actions">
+          <div className="station-pill" title="Packing station used when you print an order from this list">
+            <MapPin size={15} style={{ color: 'var(--primary)' }} />
+            <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Station:</span>
+            {stationCodes.length > 0 ? (
+              <select
+                className="station-select"
+                value={activeStation}
+                onChange={(e) => {
+                  setStation(e.target.value);
+                  saveStationCode(e.target.value);
+                }}
+              >
+                {stationCodes.map((code) => (
+                  <option key={code} value={code}>
+                    {code}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <strong>No Station</strong>
+            )}
+          </div>
           <div style={{ position: 'relative' }}>
             <button
               type="button"
@@ -530,14 +627,14 @@ export default function OrdersPage({ onNavigate }) {
 
         <div className="stat-card">
           <div className="stat-card-header">
-            <span className="stat-card-label">Printed & Moved to Tracker</span>
+            <span className="stat-card-label">Printed, Waiting for Pickup</span>
             <div className="stat-card-icon-wrap">
               <Printer size={20} />
             </div>
           </div>
           <div className="stat-card-value">{printedTrackerCount}</div>
           <div className="stat-card-footer">
-            <span className="trend-description">In Invoices Tracker</span>
+            <span className="trend-description">From the print log</span>
           </div>
         </div>
       </div>
@@ -655,7 +752,7 @@ export default function OrdersPage({ onNavigate }) {
                   const isToday = ordDateKey === activeTodayMatchKey;
 
                   return (
-                    <tr key={ord.id || `${ord.platform}-${ord.orderId}-${idx}`}>
+                    <tr key={`${ord.platform}:${ord.storeId ?? ''}:${ord.orderId}:${ord.id ?? ord.tracking ?? idx}`}>
                       <td>
                         <strong
                           style={{
@@ -680,6 +777,14 @@ export default function OrdersPage({ onNavigate }) {
                             </>
                           )}
                         </div>
+                        {ord.scanAttempts > 0 && (
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                            {ord.scanAttempts === 1 ? '1 attempt' : `${ord.scanAttempts} attempts`}
+                            {' · last '}
+                            {formatManilaTime(ord.lastAttemptAt)}
+                            {ord.lastAttemptOutcome ? ` (${String(ord.lastAttemptOutcome).replace(/_/g, ' ')})` : ''}
+                          </div>
+                        )}
                       </td>
 
                       <td>
