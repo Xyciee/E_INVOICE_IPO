@@ -138,7 +138,7 @@ export default function Sidebar({
                 className="text-2xl font-black tracking-tight"
                 style={{ fontSize: '1.5rem', lineHeight: '2rem', fontWeight: 900, letterSpacing: '-0.025em' }}
               >
-                <span style={{ color: '#0284c7' }}>E-</span>
+                <span style={{ color: '#0284c7' }}>I</span>
               </div>
             </div>
           ) : (
@@ -151,7 +151,7 @@ export default function Sidebar({
                 className="text-2xl font-black tracking-tight"
                 style={{ fontSize: '1.5rem', lineHeight: '2rem', fontWeight: 900, letterSpacing: '-0.025em' }}
               >
-                <span style={{ color: '#0284c7' }}>E-</span>
+                <span style={{ color: '#0284c7' }}>ISC E-</span>
                 <span
                   className="text-slate-900 uppercase"
                   style={{ color: '#ffffff', textTransform: 'uppercase' }}

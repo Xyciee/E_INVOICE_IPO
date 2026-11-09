@@ -635,13 +635,27 @@ export default function DashboardPage({ onNavigate }) {
             style={{
               display: 'flex',
               flexDirection: 'column',
-              gap: '24px'
+              gap: '12px'
             }}
           >
-            <h2 style={{ margin: 0 }}>
-              {greeting}, {user?.name || 'Administrator'}{' '}
-              <span className="dash-wave">✳</span>
-            </h2>
+            <div>
+              <div
+                style={{
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  letterSpacing: '0.1em',
+                  textTransform: 'uppercase',
+                  color: 'rgba(255, 255, 255, 0.85)',
+                  marginBottom: '6px'
+                }}
+              >
+                iPolymer Solutions Corp. E-Invoice System
+              </div>
+              <h2 style={{ margin: 0 }}>
+                {greeting}, {user?.name || 'Administrator'}{' '}
+                <span className="dash-wave">✳</span>
+              </h2>
+            </div>
             <div className="dash-hero-actions" style={{ marginTop: 0 }}>
               {onNavigate && (
                 <button

@@ -537,9 +537,8 @@ export default function CreditNotesPage() {
         }
         if (Number(value) > Number(line[limitField] || 0)) {
           return {
-            error: `Line ${line.line_no}: ${value} is more than the ${what} still open (${
-              modalMode === 'quantity' ? formatQty(line[limitField]) : formatMoney(line[limitField])
-            }).`
+            error: `Line ${line.line_no}: ${value} is more than the ${what} still open (${modalMode === 'quantity' ? formatQty(line[limitField]) : formatMoney(line[limitField])
+              }).`
           };
         }
         lines.push(modalMode === 'quantity' ? { line_no: line.line_no, quantity: value } : { line_no: line.line_no, amount: value });
@@ -965,7 +964,6 @@ export default function CreditNotesPage() {
                     <tr key={item.id}>
                       <td>
                         <div style={{ fontWeight: 700, color: 'var(--accent-rose)' }}>{item.document_number}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)' }}>{formatDateTime(item.issued_at)}</div>
                       </td>
                       <td>
                         <div style={{ fontWeight: 600, color: 'var(--primary)' }}>
@@ -973,7 +971,6 @@ export default function CreditNotesPage() {
                         </div>
                       </td>
                       <td>
-                        <div style={{ fontWeight: 600 }}>{item.platform_order_id || '—'}</div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
                           <PlatformBadge platform={item.platform} hideStatus />
                           <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{item.store_name || `Store ${item.store_id}`}</span>
@@ -981,28 +978,15 @@ export default function CreditNotesPage() {
                       </td>
                       <td>
                         <span className="cn-reason-code-badge">Code {item.correction_code || '—'}</span>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '3px' }}>
-                          {codeLabel(item.correction_code)}
-                        </div>
-                        {item.correction_reason && <div className="cn-reason-desc">{item.correction_reason}</div>}
                       </td>
                       <td>
                         <div className="cn-amount-credited">-{formatMoney(item.total_amount)}</div>
-                        <span style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>
-                          VAT {formatMoney(item.vat_amount)}
-                        </span>
                       </td>
                       <td>
                         <span className="badge badge-emerald">
                           <CheckCircle2 size={12} />
                           Issued
                         </span>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-subtle)', marginTop: '3px' }}>
-                          Not sent to BIR yet
-                        </div>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-subtle)' }}>
-                          {item.print_count > 0 ? `Printed ${item.print_count}×` : 'Not printed'}
-                        </div>
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         {canViewEis && (
@@ -1544,6 +1528,33 @@ export default function CreditNotesPage() {
 
             <div className="modal-body" style={{ overflowY: 'auto' }}>
               <div>
+                <div className="section-title">Credit Note Details</div>
+                <div className="meta-box">
+                  <div className="meta-col">
+                    <span className="meta-lbl">Issued Date</span>
+                    <span className="meta-val num-target">{formatDateTime(preview.doc.issued_at)}</span>
+                  </div>
+                  <div className="meta-col">
+                    <span className="meta-lbl">Correction Code</span>
+                    <span className="meta-val">
+                      Code {preview.doc.correction_code || '—'} &middot; {codeLabel(preview.doc.correction_code)}
+                    </span>
+                  </div>
+                  <div className="meta-col">
+                    <span className="meta-lbl">Reason</span>
+                    <span className="meta-val">{preview.doc.correction_reason || '—'}</span>
+                  </div>
+                  <div className="meta-col">
+                    <span className="meta-lbl">BIR &amp; Print Status</span>
+                    <span className="meta-val">
+                      Not sent to BIR yet &middot;{' '}
+                      {preview.doc.print_count > 0 ? `Printed ${preview.doc.print_count}×` : 'Not printed'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
                 <div className="section-title">Amounts</div>
                 <div className="totals-box">
                   <div className="totals-row">
@@ -1552,7 +1563,7 @@ export default function CreditNotesPage() {
                   </div>
                   <div className="totals-row">
                     <span>VAT</span>
-                    <span className="num-target">{formatMoney(preview.doc.vat_amount)}</span>
+                    <span className="num-target">VAT {formatMoney(preview.doc.vat_amount)}</span>
                   </div>
                   <div className="totals-row grand-total">
                     <span>Total credited</span>

@@ -36,7 +36,17 @@ import PlatformBadge from '../components/PlatformBadge';
 import './pages.css';
 
 const FILTER_TABS = ['All Unprinted', "Today's Orders", 'TikTok', 'Shopee', 'Lazada'];
-const ITEMS_PER_PAGE = 5;
+const STATUS_FILTER_OPTIONS = [
+  'All Status',
+  'PAID',
+  'DUE',
+  'HOLD',
+  'WAITING',
+  'UNPAID',
+  'CANCELLED',
+  'RETURNED'
+];
+const PAGE_SIZE_OPTIONS = [5, 10, 20];
 const MAX_VISIBLE_PAGES = 5;
 
 function getStatusBadge(status, holdReason = null) {
@@ -116,6 +126,8 @@ export default function OrdersPage({ onNavigate }) {
       ? savedStation
       : stationCodes[0] || '';
   const [activeFilter, setActiveFilter] = useState('All Unprinted');
+  const [statusFilter, setStatusFilter] = useState('All Status');
+  const [itemsPerPage, setItemsPerPage] = useState(5);
   const [queryInput, setQueryInput] = useState('');
   const [orders, setOrders] = useState([]);
   const [printedTrackerCount, setPrintedTrackerCount] = useState(0);
@@ -419,6 +431,30 @@ export default function OrdersPage({ onNavigate }) {
       }
     }
 
+    if (statusFilter !== 'All Status') {
+      const ordStatus = String(ord.status || '').trim().toUpperCase();
+      const ordState = String(ord.invoiceState || 'due').trim().toUpperCase();
+      const targetStatus = statusFilter.toUpperCase();
+      const matchesHold =
+        targetStatus === 'HOLD' &&
+        (ordState === 'HOLD' || ordStatus.includes('HOLD') || Boolean(ord.holdReason));
+      const matchesCancel =
+        targetStatus === 'CANCELLED' &&
+        (ordStatus.includes('CANCEL') || ordState.includes('CANCEL'));
+      const matchesReturn =
+        targetStatus === 'RETURNED' &&
+        (ordStatus.includes('RETURN') || ordState.includes('RETURN'));
+      if (
+        ordStatus !== targetStatus &&
+        ordState !== targetStatus &&
+        !matchesHold &&
+        !matchesCancel &&
+        !matchesReturn
+      ) {
+        return false;
+      }
+    }
+
     const term = queryInput.trim().toLowerCase();
     if (!term) return true;
 
@@ -432,10 +468,10 @@ export default function OrdersPage({ onNavigate }) {
     );
   });
 
-  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / ITEMS_PER_PAGE));
+  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / itemsPerPage));
   const safePage = Math.min(currentPage, totalPages);
-  const startIdx = (safePage - 1) * ITEMS_PER_PAGE;
-  const paginatedOrders = filteredOrders.slice(startIdx, startIdx + ITEMS_PER_PAGE);
+  const startIdx = (safePage - 1) * itemsPerPage;
+  const paginatedOrders = filteredOrders.slice(startIdx, startIdx + itemsPerPage);
 
   const totalPendingAmount = filteredOrders.reduce((acc, ord) => {
     const num = parseFloat(String(ord.totalAmount || '0').replace(/[^0-9.-]+/g, ''));
@@ -680,6 +716,58 @@ export default function OrdersPage({ onNavigate }) {
               ))}
             </select>
 
+            <select
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              style={{
+                height: '38px',
+                padding: '0 12px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-light)',
+                backgroundColor: 'var(--bg-app)',
+                color: 'var(--text-main)',
+                fontWeight: 600,
+                fontSize: '0.85rem',
+                cursor: 'pointer'
+              }}
+              aria-label="Filter by Status"
+            >
+              {STATUS_FILTER_OPTIONS.map((statusOpt) => (
+                <option key={statusOpt} value={statusOpt}>
+                  {statusOpt === 'All Status' ? 'All Status' : `${statusOpt}`}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={itemsPerPage}
+              onChange={(e) => {
+                setItemsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              style={{
+                height: '38px',
+                padding: '0 12px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-light)',
+                backgroundColor: 'var(--bg-app)',
+                color: 'var(--text-main)',
+                fontWeight: 600,
+                fontSize: '0.85rem',
+                cursor: 'pointer'
+              }}
+              aria-label="Rows per page"
+            >
+              {PAGE_SIZE_OPTIONS.map((count) => (
+                <option key={count} value={count}>
+                  {count} rows
+                </option>
+              ))}
+            </select>
+
             <form className="orders-search-form" onSubmit={handleSearchSubmit}>
               <div className="orders-search-input-wrap">
                 <Search size={15} className="orders-search-icon" />
@@ -908,8 +996,8 @@ export default function OrdersPage({ onNavigate }) {
         <div className="modal-pagination-bar">
           <span className="page-subtitle">
             {filteredOrders.length === 0
-              ? 'Showing 0 of 0 unprinted orders (5 per page)'
-              : `Showing ${startIdx + 1}–${Math.min(startIdx + ITEMS_PER_PAGE, filteredOrders.length)} of ${filteredOrders.length} unprinted orders`}
+              ? `Showing 0 of 0 unprinted orders (${itemsPerPage} per page)`
+              : `Showing ${startIdx + 1}–${Math.min(startIdx + itemsPerPage, filteredOrders.length)} of ${filteredOrders.length} unprinted orders (${itemsPerPage} per page)`}
           </span>
 
           <div className="modal-pagination-controls">

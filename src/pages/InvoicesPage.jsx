@@ -36,7 +36,18 @@ import PlatformBadge from '../components/PlatformBadge';
 import './pages.css';
 
 const FILTER_TABS = ['All Documents', 'Shopee', 'Lazada', 'TikTok', 'Pre-Pack Orders', 'Reprinted'];
-const ITEMS_PER_PAGE = 10;
+const STATUS_FILTER_OPTIONS = [
+  'All Status',
+  'BIR Stamped',
+  'PAID',
+  'HOLD',
+  'DUE',
+  'WAITING',
+  'UNPAID',
+  'CANCELLED',
+  'RETURNED'
+];
+const PAGE_SIZE_OPTIONS = [5, 10, 20];
 
 function getStatusBadge(status, holdReason = null) {
   const s = String(status || '').trim().toUpperCase();
@@ -141,6 +152,8 @@ export default function InvoicesPage() {
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState(null);
   const [activeFilter, setActiveFilter] = useState('All Documents');
+  const [statusFilter, setStatusFilter] = useState('All Status');
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [notificationMsg, setNotificationMsg] = useState('');
@@ -448,6 +461,30 @@ export default function InvoicesPage() {
 
       if (!matchesTab) return false;
 
+      if (statusFilter !== 'All Status') {
+        const invStatus = String(inv.status || 'BIR Stamped').trim().toUpperCase();
+        const invState = String(inv.invoiceState || '').trim().toUpperCase();
+        const targetStatus = statusFilter.toUpperCase();
+        const matchesHold =
+          targetStatus === 'HOLD' &&
+          (invState === 'HOLD' || invStatus.includes('HOLD') || Boolean(inv.holdReason));
+        const matchesCancel =
+          targetStatus === 'CANCELLED' &&
+          (invStatus.includes('CANCEL') || invState.includes('CANCEL'));
+        const matchesReturn =
+          targetStatus === 'RETURNED' &&
+          (invStatus.includes('RETURN') || invState.includes('RETURN'));
+        if (
+          invStatus !== targetStatus &&
+          invState !== targetStatus &&
+          !matchesHold &&
+          !matchesCancel &&
+          !matchesReturn
+        ) {
+          return false;
+        }
+      }
+
       const term = searchQuery.trim().toLowerCase();
       if (!term) return true;
 
@@ -460,12 +497,12 @@ export default function InvoicesPage() {
         String(inv.productSummary || '').toLowerCase().includes(term)
       );
     });
-  }, [displayRows, activeFilter, searchQuery]);
+  }, [displayRows, activeFilter, statusFilter, searchQuery]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredInvoices.length / ITEMS_PER_PAGE));
+  const totalPages = Math.max(1, Math.ceil(filteredInvoices.length / itemsPerPage));
   const safePage = Math.min(currentPage, totalPages);
-  const startIdx = (safePage - 1) * ITEMS_PER_PAGE;
-  const paginatedInvoices = filteredInvoices.slice(startIdx, startIdx + ITEMS_PER_PAGE);
+  const startIdx = (safePage - 1) * itemsPerPage;
+  const paginatedInvoices = filteredInvoices.slice(startIdx, startIdx + itemsPerPage);
 
   const totalPrintedValue = filteredInvoices.reduce((sum, inv) => {
     const num = parseFloat(String(inv.totalAmount || '0').replace(/[^0-9.-]+/g, ''));
@@ -748,6 +785,58 @@ export default function InvoicesPage() {
               })}
             </select>
 
+            <select
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              style={{
+                height: '38px',
+                padding: '0 12px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-light)',
+                backgroundColor: 'var(--bg-app)',
+                color: 'var(--text-main)',
+                fontWeight: 600,
+                fontSize: '0.85rem',
+                cursor: 'pointer'
+              }}
+              aria-label="Filter by Status"
+            >
+              {STATUS_FILTER_OPTIONS.map((statusOpt) => (
+                <option key={statusOpt} value={statusOpt}>
+                  {statusOpt === 'All Status' ? 'All Status' : `${statusOpt}`}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={itemsPerPage}
+              onChange={(e) => {
+                setItemsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              style={{
+                height: '38px',
+                padding: '0 12px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-light)',
+                backgroundColor: 'var(--bg-app)',
+                color: 'var(--text-main)',
+                fontWeight: 600,
+                fontSize: '0.85rem',
+                cursor: 'pointer'
+              }}
+              aria-label="Rows per page"
+            >
+              {PAGE_SIZE_OPTIONS.map((count) => (
+                <option key={count} value={count}>
+                  {count} rows
+                </option>
+              ))}
+            </select>
+
             <form
               className="orders-search-form"
               onSubmit={(e) => {
@@ -980,8 +1069,8 @@ export default function InvoicesPage() {
         >
           <span className="page-subtitle">
             {filteredInvoices.length === 0
-              ? 'Showing 0 of 0 Documents'
-              : `Showing ${startIdx + 1}–${Math.min(startIdx + ITEMS_PER_PAGE, filteredInvoices.length)} of ${filteredInvoices.length} Records`}
+              ? `Showing 0 of 0 Documents (${itemsPerPage} per page)`
+              : `Showing ${startIdx + 1}–${Math.min(startIdx + itemsPerPage, filteredInvoices.length)} of ${filteredInvoices.length} Records (${itemsPerPage} per page)`}
           </span>
 
           <div

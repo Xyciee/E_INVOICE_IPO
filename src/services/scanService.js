@@ -32,7 +32,7 @@ export function stationCodesOf(list) {
 }
 
 /** Kept for older callers: nothing is saved in the browser any more (2026-11-09), so there is nothing to clear. */
-export function invalidateOrdersAndDocsCache() {}
+export function invalidateOrdersAndDocsCache() { }
 
 const FALLBACK_REPRINT_REASONS = [
   { code: 'printer_jam', label: 'Printer jam or paper problem' },
@@ -453,8 +453,8 @@ export async function logInvoicePrint(
       res.data?.error === 'invoice_replaced' ||
       Boolean(
         res.data?.replacement_number ||
-          res.data?.replaced_by_number ||
-          res.data?.replaced_by
+        res.data?.replaced_by_number ||
+        res.data?.replaced_by
       );
 
     if (isReplaced) {
@@ -665,16 +665,16 @@ export function normalizeDocumentRecord(raw) {
 
   const rawPlatform = String(
     doc.platform ||
-      doc.marketplace ||
-      doc.channel ||
-      order.platform ||
-      order.marketplace ||
-      order.channel ||
-      raw.platform ||
-      doc.store_platform ||
-      doc.store_name ||
-      order.store_name ||
-      ''
+    doc.marketplace ||
+    doc.channel ||
+    order.platform ||
+    order.marketplace ||
+    order.channel ||
+    raw.platform ||
+    doc.store_platform ||
+    doc.store_name ||
+    order.store_name ||
+    ''
   );
 
   let platform = 'Marketplace';
@@ -799,10 +799,10 @@ export function normalizeDocumentRecord(raw) {
   const vatExemptSales = formatMoney(
     toMoneyNumber(
       doc.vat_exempt_sales ??
-        doc.exempt_sales ??
-        totals.vat_exempt_sales ??
-        order.vat_exempt_sales ??
-        0
+      doc.exempt_sales ??
+      totals.vat_exempt_sales ??
+      order.vat_exempt_sales ??
+      0
     ),
     '0.00'
   );
@@ -810,9 +810,9 @@ export function normalizeDocumentRecord(raw) {
   const zeroRatedSales = formatMoney(
     toMoneyNumber(
       doc.zero_rated_sales ??
-        totals.zero_rated_sales ??
-        order.zero_rated_sales ??
-        0
+      totals.zero_rated_sales ??
+      order.zero_rated_sales ??
+      0
     ),
     '0.00'
   );
@@ -850,11 +850,11 @@ export function normalizeDocumentRecord(raw) {
     lines.length > 0
       ? lines.map((l) => `${l.productName}${l.qty > 1 ? ` (x${l.qty})` : ''}`).join(', ')
       : doc.product_name ||
-        doc.item_summary ||
-        order.product_name ||
-        order.item_summary ||
-        order.title ||
-        '—';
+      doc.item_summary ||
+      order.product_name ||
+      order.item_summary ||
+      order.title ||
+      '—';
 
   return {
     id:
@@ -908,26 +908,26 @@ export function normalizeDocumentRecord(raw) {
     buyerTin: doc.buyer_tin || doc.tin || order.buyer_tin || '—',
     status: String(
       order.status ||
-        order.order_status ||
-        order.platform_status ||
-        raw.order_status ||
-        raw.platform_status ||
-        doc.status ||
-        doc.state ||
-        doc.document_status ||
-        raw.status ||
-        'PAID'
+      order.order_status ||
+      order.platform_status ||
+      raw.order_status ||
+      raw.platform_status ||
+      doc.status ||
+      doc.state ||
+      doc.document_status ||
+      raw.status ||
+      'PAID'
     ).toUpperCase(),
     invoiceState: String(
       raw.invoice_state ||
-        raw.draft_state ||
-        order.invoice_state ||
-        order.draft_state ||
-        doc.invoice_state ||
-        doc.draft_state ||
-        raw.state ||
-        doc.state ||
-        (doc.document_number || raw.document_number ? 'issued' : 'due')
+      raw.draft_state ||
+      order.invoice_state ||
+      order.draft_state ||
+      doc.invoice_state ||
+      doc.draft_state ||
+      raw.state ||
+      doc.state ||
+      (doc.document_number || raw.document_number ? 'issued' : 'due')
     ).toLowerCase(),
     holdReason:
       raw.problem ||
@@ -982,22 +982,22 @@ export function normalizeDocumentRecord(raw) {
     creditNotes,
     printCount: Number(
       doc.print_count ??
-        raw.print_count ??
-        doc.prints_count ??
-        (prints.length > 0 ? prints.length : 0)
+      raw.print_count ??
+      doc.prints_count ??
+      (prints.length > 0 ? prints.length : 0)
     ),
     reprintCount: Number(
       doc.reprint_count ??
-        raw.reprint_count ??
-        (prints.length > 1 ? prints.length - 1 : 0)
+      raw.reprint_count ??
+      (prints.length > 1 ? prints.length - 1 : 0)
     ),
     isReprint: Boolean(
       doc.reprinted ??
-        raw.reprinted ??
-        doc.is_reprint ??
-        doc.is_reprinted ??
-        (doc.reprint_count && Number(doc.reprint_count) > 0) ??
-        prints.length > 1
+      raw.reprinted ??
+      doc.is_reprint ??
+      doc.is_reprinted ??
+      (doc.reprint_count && Number(doc.reprint_count) > 0) ??
+      prints.length > 1
     ),
     lastPrintedAt:
       doc.last_printed_at ||
@@ -1205,11 +1205,23 @@ function normalizeQueueRow(row) {
   // An invoiced order carries its issued invoice's own figures (as the old queue took them from /api/documents).
   const fromInvoice = (value, fallback) =>
     value === null || value === undefined ? fallback : formatMoney(toMoneyNumber(value), '0.00');
+  const invoiceTotalNum = toMoneyNumber(row.invoice_total ?? row.total_amount ?? row.grand_total);
+  const totalAmount =
+    invoiceTotalNum !== null && invoiceTotalNum > 0
+      ? formatMoney(invoiceTotalNum, '0.00')
+      : base.totalAmount || '0.00';
+  const vatableNum =
+    toMoneyNumber(row.vatable_sales ?? row.net_sales) ??
+    (invoiceTotalNum !== null && invoiceTotalNum > 0 ? invoiceTotalNum / 1.12 : null);
+  const vatNum =
+    toMoneyNumber(row.vat_amount ?? row.tax_amount) ??
+    (invoiceTotalNum !== null && invoiceTotalNum > 0 && vatableNum !== null
+      ? invoiceTotalNum - vatableNum
+      : null);
+
   return {
     ...base,
     buyerName: row.buyer_name || base.buyerName,
-    vatableSales: fromInvoice(row.vatable_sales, base.vatableSales),
-    vatAmount: fromInvoice(row.vat_amount, base.vatAmount),
     discountAmount: fromInvoice(row.discount_total, base.discountAmount),
     id: row.invoice_id ?? null,
     documentNumber: row.invoice_number || '—',
@@ -1221,7 +1233,19 @@ function normalizeQueueRow(row) {
     invoiceState: String(row.invoice_state || '').toLowerCase(),
     holdReason: row.problem || null,
     scanOutcome: row.scan_outcome || null,
-    totalAmount: formatMoney(toMoneyNumber(row.invoice_total), '0.00'),
+    vatableSales:
+      row.vatable_sales !== null && row.vatable_sales !== undefined
+        ? fromInvoice(row.vatable_sales, base.vatableSales)
+        : vatableNum !== null
+          ? formatMoney(vatableNum, '0.00')
+          : base.vatableSales || '0.00',
+    vatAmount:
+      row.vat_amount !== null && row.vat_amount !== undefined
+        ? fromInvoice(row.vat_amount, base.vatAmount)
+        : vatNum !== null
+          ? formatMoney(vatNum, '0.00')
+          : base.vatAmount || '0.00',
+    totalAmount,
     orderDate: row.order_created_at || '—',
     issuedAt: row.invoice_issued_at || '—',
     printCount: Number(row.print_count || 0),
@@ -1307,18 +1331,18 @@ export function downloadWaybillSoftCopy(doc) {
     Array.isArray(doc.lines) && doc.lines.length > 0
       ? doc.lines
       : [
-          {
-            id: 1,
-            productName:
-              doc.productSummary && doc.productSummary !== '—'
-                ? doc.productSummary
-                : `${doc.platform || 'Marketplace'} Order #${doc.orderId || '—'}`,
-            sku: '',
-            qty: 1,
-            unitPrice: doc.totalAmount || '0.00',
-            lineTotal: doc.totalAmount || '0.00'
-          }
-        ];
+        {
+          id: 1,
+          productName:
+            doc.productSummary && doc.productSummary !== '—'
+              ? doc.productSummary
+              : `${doc.platform || 'Marketplace'} Order #${doc.orderId || '—'}`,
+          sku: '',
+          qty: 1,
+          unitPrice: doc.totalAmount || '0.00',
+          lineTotal: doc.totalAmount || '0.00'
+        }
+      ];
 
   const baseHeight = 460 + linesList.length * 42;
   const height = Math.max(600, baseHeight);
