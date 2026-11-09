@@ -29,105 +29,6 @@ const REASON_CODES = [
   { code: '05', label: 'Other Commercial Adjustment / Correction' }
 ];
 
-// Initial realistic candidates when backend returns empty or before start date
-const SAMPLE_CANDIDATES = [
-  {
-    id: 'cand_1',
-    orderId: 'SHO-2026-90812',
-    tracking: 'SPXPH04928172901',
-    platform: 'Shopee',
-    storeName: 'Qualisafe Official Store',
-    customer: 'Apex Logistics Corp (TIN 004-912-340-000)',
-    invoiceId: 'INV-2026-0428',
-    invoiceDate: 'Oct 29, 2026',
-    trigger: 'Buyer Requested Reissue (Company TIN & Name)',
-    suggestedCode: '01',
-    totalInvoiceAmount: '840.00',
-    creditableBalance: '840.00',
-    items: [
-      { id: 'item_1', name: 'Qualisafe Medical Nitrile Gloves (Box of 100)', qty: 2, unitPrice: '420.00', creditable: '840.00' }
-    ]
-  },
-  {
-    id: 'cand_2',
-    orderId: 'LAZ-2026-44129',
-    tracking: 'LX-PH-992182741',
-    platform: 'Lazada',
-    storeName: 'First Protect PH',
-    customer: 'Maria Santos (Personal Buyer)',
-    invoiceId: 'INV-2026-0422',
-    invoiceDate: 'Oct 27, 2026',
-    trigger: 'Carrier Returned - Parcel Undelivered / Refused',
-    suggestedCode: '02',
-    totalInvoiceAmount: '1250.00',
-    creditableBalance: '1250.00',
-    items: [
-      { id: 'item_2', name: 'First Protect Heavy-Duty Barrier Tape (500m)', qty: 1, unitPrice: '1250.00', creditable: '1250.00' }
-    ]
-  },
-  {
-    id: 'cand_3',
-    orderId: 'TIK-2026-11843',
-    tracking: 'JNT6291048172',
-    platform: 'TikTok Shop',
-    storeName: 'Baby Bright Official',
-    customer: 'Chloe Gomez (Buyer Cancelled)',
-    invoiceId: 'INV-2026-0419',
-    invoiceDate: 'Oct 25, 2026',
-    trigger: 'Buyer Cancelled After Packing Scan',
-    suggestedCode: '03',
-    totalInvoiceAmount: '450.00',
-    creditableBalance: '450.00',
-    items: [
-      { id: 'item_3', name: 'Baby Bright Organic Wipes (Pack of 3)', qty: 1, unitPrice: '450.00', creditable: '450.00' }
-    ]
-  }
-];
-
-// Initial realistic issued credit notes ledger
-const SAMPLE_ISSUED = [
-  {
-    id: 'CN-2026-0038',
-    invoiceId: 'INV-2026-0410',
-    orderId: 'SHO-2026-88129',
-    platform: 'Shopee',
-    storeName: 'Qualisafe Official Store',
-    date: 'Oct 28, 2026 14:22 Manila',
-    reasonCode: '01',
-    reason: 'Buyer requested corporate TIN and official company receipt details',
-    amount: '680.00',
-    status: 'EIS Registered',
-    author: 'accounting_user',
-    replacedBy: 'INV-2026-0411'
-  },
-  {
-    id: 'CN-2026-0037',
-    invoiceId: 'INV-2026-0402',
-    orderId: 'LAZ-2026-42991',
-    platform: 'Lazada',
-    storeName: 'First Protect PH',
-    date: 'Oct 26, 2026 11:05 Manila',
-    reasonCode: '02',
-    reason: 'Defective product returned by customer; inspected and approved by QA',
-    amount: '1120.00',
-    status: 'EIS Registered',
-    author: 'accounting_user'
-  },
-  {
-    id: 'CN-2026-0036',
-    invoiceId: 'INV-2026-0395',
-    orderId: 'TIK-2026-10492',
-    platform: 'TikTok Shop',
-    storeName: 'Baby Bright Official',
-    date: 'Oct 24, 2026 16:48 Manila',
-    reasonCode: '03',
-    reason: 'Failed pickup attempt by courier; order auto-cancelled by marketplace',
-    amount: '380.00',
-    status: 'EIS Registered',
-    author: 'accounting_user'
-  }
-];
-
 export default function CreditNotesPage() {
   const { user } = useAuth();
   const notify = useNotify();
@@ -139,8 +40,9 @@ export default function CreditNotesPage() {
   const [loadingCandidates, setLoadingCandidates] = useState(false);
 
   // Candidates & Issued Data State
-  const [candidates, setCandidates] = useState(SAMPLE_CANDIDATES);
-  const [issuedLedger, setIssuedLedger] = useState(SAMPLE_ISSUED);
+  // Only what the server returns: no built-in sample rows (2026-11-09).
+  const [candidates, setCandidates] = useState([]);
+  const [issuedLedger, setIssuedLedger] = useState([]);
 
   // Issue Modal State
   const [showIssueModal, setShowIssueModal] = useState(false);
@@ -165,8 +67,10 @@ export default function CreditNotesPage() {
     setLoadingCandidates(true);
     try {
       const res = await api.get('/api/credit-notes/candidates', {}, { forceRefresh: showNotification });
-      if (res.ok && Array.isArray(res.data) && res.data.length > 0) {
+      if (res.ok && Array.isArray(res.data)) {
         setCandidates(res.data);
+      }
+      if (res.ok && Array.isArray(res.data) && res.data.length > 0) {
         if (showNotification) {
           notify.success('Updated', `Fetched ${res.data.length} candidate orders from backend.`);
         }
@@ -178,7 +82,7 @@ export default function CreditNotesPage() {
     } catch (err) {
       console.warn('Could not load candidates from backend:', err);
       if (showNotification) {
-        notify.warning('Backend Notice', 'Using cached work list data (backend returned 503 or offline).');
+        notify.warning('Work list not loaded', 'Could not load the work list: the server returned an error or is offline. Try again in a minute.');
       }
     } finally {
       setLoadingCandidates(false);

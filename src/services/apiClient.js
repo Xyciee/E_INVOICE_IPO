@@ -1,112 +1,19 @@
 /**
- * Generic API client for the E-Invoice Django backend with shared
- * in-memory + sessionStorage caching & in-flight request deduplication.
+ * Generic API client for the E-Invoice Django backend.
  * - Sends session cookies (credentials: 'include')
  * - Adds X-CSRFToken automatically for non-GET requests
- * - Caches GET responses across all pages so navigating between
- *   Dashboard, Orders, Invoices, Credit Notes, and Scan Station is instant
- * - Automatically invalidates cache on POST / PATCH / PUT / DELETE mutations
+ * - No saved copies (2026-11-09): every screen asks the server, so packers never act on an old list
+ *   (an order fixed or printed at another station, a list loaded by the previous user on this PC).
+ *   Only identical GETs sent at the same moment share one request.
  */
 import { getCsrfToken } from './authService.js';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes TTL
-const SESSION_CACHE_PREFIX = 'einvoice_api_cache_v4:';
+// Saved answers of older builds (sessionStorage) and per-PC copies of server data (localStorage).
+const OLD_SESSION_CACHE_PREFIX = 'einvoice_api_cache_';
+const OLD_LOCAL_DATA_KEYS = ['bir_printed_einvoices', 'bir_recent_scan_logs'];
 
-const memoryCache = new Map();
 const inFlightRequests = new Map();
-
-function expandPrepackPayloadToTarget(data, targetCount = 200) {
-  if (!data) return data;
-
-  const extractArrayInfo = (obj) => {
-    if (Array.isArray(obj)) return { arr: obj, key: null };
-    if (typeof obj === 'object') {
-      for (const k of ['results', 'orders', 'items', 'data', 'prepack', 'rows', 'records', 'documents']) {
-        if (Array.isArray(obj[k])) return { arr: obj[k], key: k };
-      }
-      const foundKey = Object.keys(obj).find((k) => Array.isArray(obj[k]));
-      if (foundKey) return { arr: obj[foundKey], key: foundKey };
-    }
-    return { arr: null, key: null };
-  };
-
-  const { arr, key } = extractArrayInfo(data);
-  if (!arr || arr.length === 0 || arr.length >= targetCount) {
-    return data;
-  }
-
-  const expanded = [...arr];
-  const seedLen = arr.length;
-
-  for (let i = seedLen; i < targetCount; i++) {
-    const seed = arr[i % seedLen];
-    if (!seed || typeof seed !== 'object') continue;
-
-    const batchNum = Math.floor(i / seedLen) + 1;
-    const seqSuffix = String(i + 1).padStart(3, '0');
-    const seedOrderObj = seed.order && typeof seed.order === 'object' ? seed.order : null;
-
-    const origOrderId =
-      seed.order_id ||
-      seed.platform_order_id ||
-      seed.external_order_id ||
-      seedOrderObj?.order_id ||
-      seedOrderObj?.platform_order_id ||
-      seed.id ||
-      `ORD-${seqSuffix}`;
-
-    const origTracking =
-      seed.tracking ||
-      seed.tracking_number ||
-      seed.waybill ||
-      seedOrderObj?.tracking ||
-      seedOrderObj?.tracking_number ||
-      seedOrderObj?.waybill ||
-      `WB-${seqSuffix}`;
-
-    const newOrderId = `${origOrderId}-B${batchNum}${seqSuffix}`;
-    const newTracking =
-      origTracking && origTracking !== '—'
-        ? `${origTracking}-${seqSuffix}`
-        : `WB-${ batchNum }${seqSuffix}`;
-
-    const cloned = {
-      ...seed,
-      _source_order_id: origOrderId,
-      order_id: newOrderId,
-      platform_order_id: newOrderId,
-      tracking: newTracking,
-      tracking_number: newTracking,
-      waybill: newTracking
-    };
-
-    if (seedOrderObj) {
-      cloned.order = {
-        ...seedOrderObj,
-        _source_order_id: origOrderId,
-        order_id: newOrderId,
-        platform_order_id: newOrderId,
-        tracking: newTracking,
-        tracking_number: newTracking,
-        waybill: newTracking
-      };
-    }
-
-    expanded.push(cloned);
-  }
-
-  if (key === null) {
-    return expanded;
-  }
-
-  return {
-    ...data,
-    [key]: expanded,
-    count: expanded.length,
-    total: expanded.length
-  };
-}
 
 function readCsrfCookie() {
   const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
@@ -122,129 +29,47 @@ export function buildUrl(path, query = {}) {
   return `${API_BASE}${path}${qs ? `?${qs}` : ''}`;
 }
 
-function isCacheableGetPath(path) {
-  // Do not cache live barcode scan lookup polling or auth csrf/me session checks
-  if (path.startsWith('/api/scan/')) return false;
-  if (path.startsWith('/api/auth/')) return false;
-  return true;
-}
-
-export function getCachedResponse(url) {
-  const needsFullPrepack =
-    url.includes('/api/prepack') && url.includes('problems_only=0') && !url.includes('q=');
-
-  const mem = memoryCache.get(url);
-  if (mem && Date.now() - mem.timestamp < CACHE_TTL_MS) {
-    const data = needsFullPrepack
-      ? expandPrepackPayloadToTarget(mem.response.data, 200)
-      : mem.response.data;
-    return {
-      ...mem.response,
-      data,
-      timeMs: 0,
-      cached: true
-    };
-  }
-
-  try {
-    const raw = sessionStorage.getItem(SESSION_CACHE_PREFIX + url);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && Date.now() - parsed.timestamp < CACHE_TTL_MS && parsed.response) {
-        if (needsFullPrepack) {
-          parsed.response.data = expandPrepackPayloadToTarget(parsed.response.data, 200);
-        }
-        memoryCache.set(url, parsed);
-        return {
-          ...parsed.response,
-          timeMs: 0,
-          cached: true
-        };
-      }
-    }
-  } catch {
-    // Ignore storage read errors
-  }
-
+/** Nothing is saved any more; kept so older callers still work. Always null. */
+export function getCachedResponse() {
   return null;
 }
 
-function setCachedResponse(url, response) {
-  const entry = {
-    timestamp: Date.now(),
-    response
-  };
-  memoryCache.set(url, entry);
+/**
+ * Removes data older builds kept in this browser: saved API answers, the per-PC "printed" list and the recent
+ * scans list. Called on sign-in and sign-out so the next person on this PC never sees the previous one's data.
+ * The station chosen on this PC and the last page opened are settings, not data, and stay.
+ */
+export function clearApiCache() {
   try {
-    sessionStorage.setItem(SESSION_CACHE_PREFIX + url, JSON.stringify(entry));
-  } catch {
-    // Ignore sessionStorage quota errors
-  }
-}
-
-export function clearApiCache(urlSubstring = '') {
-  if (!urlSubstring) {
-    memoryCache.clear();
-    try {
-      const keysToRemove = [];
-      for (let i = 0; i < sessionStorage.length; i++) {
-        const k = sessionStorage.key(i);
-        if (k && k.startsWith(SESSION_CACHE_PREFIX)) {
-          keysToRemove.push(k);
-        }
-      }
-      keysToRemove.forEach((k) => sessionStorage.removeItem(k));
-    } catch {
-      // Ignore storage errors
-    }
-    return;
-  }
-
-  for (const key of Array.from(memoryCache.keys())) {
-    if (key.includes(urlSubstring)) {
-      memoryCache.delete(key);
-    }
-  }
-  try {
-    const keysToRemove = [];
+    const keys = [];
     for (let i = 0; i < sessionStorage.length; i++) {
       const k = sessionStorage.key(i);
-      if (k && k.startsWith(SESSION_CACHE_PREFIX) && k.includes(urlSubstring)) {
-        keysToRemove.push(k);
-      }
+      if (k && (k.startsWith(OLD_SESSION_CACHE_PREFIX) || OLD_LOCAL_DATA_KEYS.includes(k))) keys.push(k);
     }
-    keysToRemove.forEach((k) => sessionStorage.removeItem(k));
+    keys.forEach((k) => sessionStorage.removeItem(k));
   } catch {
-    // Ignore storage errors
+    // storage blocked: nothing to clear
+  }
+  try {
+    OLD_LOCAL_DATA_KEYS.forEach((k) => localStorage.removeItem(k));
+  } catch {
+    // storage blocked: nothing to clear
   }
 }
 
 /**
  * @param {string} method  GET | POST | PATCH | PUT | DELETE
  * @param {string} path    e.g. /api/me
- * @param {{query?: object, body?: any, forceRefresh?: boolean, bypassCache?: boolean}} options
+ * @param {{query?: object, body?: any}} options  (forceRefresh / bypassCache are accepted and ignored:
+ *   every request goes to the server)
  */
-export async function apiRequest(
-  method,
-  path,
-  { query, body, forceRefresh = false, bypassCache = false } = {}
-) {
+export async function apiRequest(method, path, { query, body } = {}) {
   const upper = method.toUpperCase();
   const url = buildUrl(path, query);
-  const canCache = upper === 'GET' && !bypassCache && isCacheableGetPath(path);
+  const shareable = upper === 'GET';
 
-  if (canCache && forceRefresh) {
-    clearApiCache(path);
-  }
-
-  if (canCache && !forceRefresh) {
-    const cached = getCachedResponse(url);
-    if (cached) {
-      return cached;
-    }
-    if (inFlightRequests.has(url)) {
-      return inFlightRequests.get(url);
-    }
+  if (shareable && inFlightRequests.has(url)) {
+    return inFlightRequests.get(url);
   }
 
   const executeFetch = async () => {
@@ -268,7 +93,8 @@ export async function apiRequest(
         method: upper,
         headers,
         body: payload,
-        credentials: 'include'
+        credentials: 'include',
+        cache: 'no-store'
       });
       const raw = await res.text();
       const timeMs = Math.round(performance.now() - started);
@@ -280,22 +106,12 @@ export async function apiRequest(
         /* not JSON — keep raw text */
       }
 
-      if (
-        upper === 'GET' &&
-        res.ok &&
-        path.startsWith('/api/prepack') &&
-        url.includes('problems_only=0') &&
-        !url.includes('q=')
-      ) {
-        data = expandPrepackPayloadToTarget(data, 200);
-      }
-
       const resHeaders = {};
       res.headers.forEach((v, k) => {
         resHeaders[k] = v;
       });
 
-      const result = {
+      return {
         ok: res.ok,
         status: res.status,
         statusText: res.statusText,
@@ -307,15 +123,6 @@ export async function apiRequest(
         url,
         cached: false
       };
-
-      if (canCache && res.ok && res.status === 200) {
-        setCachedResponse(url, result);
-      } else if (upper !== 'GET' && upper !== 'HEAD' && res.ok) {
-        // Invalidate cached GET lists after any successful mutation
-        clearApiCache();
-      }
-
-      return result;
     } catch (err) {
       return {
         ok: false,
@@ -331,12 +138,12 @@ export async function apiRequest(
         cached: false
       };
     } finally {
-      inFlightRequests.delete(url);
+      if (shareable) inFlightRequests.delete(url);
     }
   };
 
   const promise = executeFetch();
-  if (canCache) {
+  if (shareable) {
     inFlightRequests.set(url, promise);
   }
   return promise;

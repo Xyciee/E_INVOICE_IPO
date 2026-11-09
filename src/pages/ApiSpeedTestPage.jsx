@@ -323,7 +323,7 @@ export default function ApiSpeedTestPage() {
         records: getRecordCount(prepackRes.data),
         note: prepackRes.cached
           ? 'Served instantly from shared cache (shared with Dashboard & Invoices)'
-          : 'Live network fetch (now cached for 5m across all pages)'
+          : 'Live network fetch (nothing is cached)'
       },
       {
         step: '2. fetchDocumentsRegister()',
@@ -336,7 +336,7 @@ export default function ApiSpeedTestPage() {
         records: getRecordCount(docsRes.data),
         note: docsRes.cached
           ? 'Served instantly from shared cache (shared with Dashboard & Invoices)'
-          : 'Live network fetch (now cached for 5m across all pages)'
+          : 'Live network fetch (nothing is cached)'
       }
     ];
 

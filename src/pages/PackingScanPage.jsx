@@ -17,6 +17,9 @@ import { useAuth } from '../context/AuthContext';
 import { useConfirm, useNotify } from '../context/NotificationContext';
 import {
   checkBackendHealth,
+  getSavedStationCode,
+  saveStationCode,
+  stationCodesOf,
   lookupWaybillScan,
   issueAtScan,
   logInvoicePrint,
@@ -116,11 +119,12 @@ export default function PackingScanPage() {
       if (assigned.length > 0) {
         if (active) {
           setStations(assigned);
+          const saved = getSavedStationCode();
           const first =
             typeof assigned[0] === 'string'
               ? assigned[0]
               : assigned[0]?.code || assigned[0]?.id || '';
-          setSelectedStation(String(first));
+          setSelectedStation(String(stationCodesOf(assigned).includes(saved) ? saved : first));
         }
         return;
       }
@@ -133,7 +137,10 @@ export default function PackingScanPage() {
       if (active && list.length > 0) {
         setStations(list);
         const firstActive = list.find((s) => s.is_active !== false) || list[0];
-        setSelectedStation(String(firstActive.code || firstActive.id || ''));
+        const saved = getSavedStationCode();
+        setSelectedStation(
+          String(stationCodesOf(list).includes(saved) ? saved : firstActive.code || firstActive.id || '')
+        );
       }
     }
 
@@ -495,7 +502,7 @@ export default function PackingScanPage() {
         setRetryCount(0);
       }
 
-      const res = await lookupWaybillScan(code);
+      const res = await lookupWaybillScan(code, getStationPayload().stationCode);
       setLookupData(res);
 
       const state = res.classified?.state;
@@ -593,7 +600,7 @@ export default function PackingScanPage() {
         detail: res.classified?.message || 'Lookup failed'
       });
     },
-    [stopTimers, appendLog, handleGiveUp, issueInvoice]
+    [stopTimers, appendLog, handleGiveUp, issueInvoice, getStationPayload]
   );
 
   useEffect(() => {
@@ -818,7 +825,10 @@ export default function PackingScanPage() {
               <select
                 className="station-select"
                 value={selectedStation}
-                onChange={(e) => setSelectedStation(e.target.value)}
+                onChange={(e) => {
+                  setSelectedStation(e.target.value);
+                  saveStationCode(e.target.value);
+                }}
               >
                 {stations.map((st, i) => {
                   const code = typeof st === 'string' ? st : st.code || st.id || `STN-${i + 1}`;

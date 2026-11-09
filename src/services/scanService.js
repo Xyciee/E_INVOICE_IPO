@@ -1,14 +1,38 @@
 import { getCsrfToken } from './authService';
-import { apiRequest, clearApiCache } from './apiClient';
+import { apiRequest } from './apiClient';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
-let unprintedOrdersMemCache = new Map();
 
-export function invalidateOrdersAndDocsCache() {
-  unprintedOrdersMemCache.clear();
-  clearApiCache();
+const STATION_STORAGE_KEY = 'bir_selected_station';
+
+/** The packing station chosen on this PC (shared by the scan screen and the orders queue), or ''. */
+export function getSavedStationCode() {
+  try {
+    return localStorage.getItem(STATION_STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
 }
+
+export function saveStationCode(code) {
+  try {
+    if (code) localStorage.setItem(STATION_STORAGE_KEY, String(code));
+  } catch {
+    // ignore storage errors (private window, blocked storage)
+  }
+}
+
+/** Station codes from /api/me (user.stations) or /api/stations rows, as plain codes. */
+export function stationCodesOf(list) {
+  return (Array.isArray(list) ? list : [])
+    .filter((s) => s && (typeof s === 'string' || s.active !== false))
+    .map((s) => (typeof s === 'string' ? s : String(s.code || '')))
+    .filter(Boolean);
+}
+
+/** Kept for older callers: nothing is saved in the browser any more (2026-11-09), so there is nothing to clear. */
+export function invalidateOrdersAndDocsCache() {}
 
 const FALLBACK_REPRINT_REASONS = [
   { code: 'printer_jam', label: 'Printer jam or paper problem' },
@@ -126,9 +150,10 @@ export function checkBackendHealth() {
   return request('/api/health');
 }
 
-export async function lookupWaybillScan(tracking) {
+export async function lookupWaybillScan(tracking, stationCode) {
   const clean = encodeURIComponent(tracking.trim());
-  const res = await request(`/api/scan/${clean}`);
+  const station = encodeURIComponent(String(stationCode || '').trim());
+  const res = await request(`/api/scan/${clean}?station=${station}`);
   return {
     ...res,
     classified: parseLookupResult(res, tracking.trim())
@@ -1025,13 +1050,23 @@ export function fetchOrdersList(params = {}) {
   return request(`/api/orders${buildQueryString(params)}`);
 }
 
-export function issueMissedScanOrder(platform, storeId, orderId) {
+/**
+ * Issue an invoice without a packing scan. The backend requires the order's own waybill (`tracking`, as the
+ * API gave it) and the station the person is at; it refuses a waybill that belongs to another order.
+ */
+export function issueMissedScanOrder(platform, storeId, orderId, { tracking, station } = {}) {
   const p = encodeURIComponent(String(platform).toLowerCase().trim());
   const s = encodeURIComponent(String(storeId).trim());
   const o = encodeURIComponent(String(orderId).trim());
   return request(`/api/orders/${p}/${s}/${o}/issue`, {
-    method: 'POST'
+    method: 'POST',
+    body: { tracking: String(tracking || '').trim(), station: String(station || '').trim() }
   });
+}
+
+/** Scan attempts grouped one row per order (GET /api/scans/by-order). Days are Manila days. */
+export function fetchScanAttemptsByOrder(params = {}) {
+  return request(`/api/scans/by-order${buildQueryString(params)}`);
 }
 
 export function fetchCreditNoteCandidates(params = {}) {
@@ -1100,108 +1135,21 @@ export function resolveUnresolvedScan(scanId, note) {
   });
 }
 
-const PRINTED_INVOICES_STORAGE_KEY = 'bir_printed_einvoices';
-
+/**
+ * Print status comes only from the server's print log (GET /api/prints, print_count on documents and queue rows).
+ * Older builds kept a second "printed" list in each browser; it marked orders printed even when the server refused
+ * the print, and other PCs never saw it. These two stay so older callers still work: there are no local records.
+ */
 export function getPrintedInvoiceRecords() {
-  try {
-    const raw = localStorage.getItem(PRINTED_INVOICES_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  return [];
 }
 
-export function savePrintedInvoiceRecord(record, meta = {}) {
-  if (!record) return [];
-  const normalized =
-    record.documentNumber && record.lines !== undefined
-      ? record
-      : normalizeDocumentRecord(record);
-  if (!normalized) return getPrintedInvoiceRecords();
-
-  const nowStr = new Date().toLocaleString('en-PH', {
-    year: 'numeric',
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-
-  const cleanTrack = String(
-    meta.tracking && meta.tracking !== '—'
-      ? meta.tracking
-      : normalized.tracking || ''
-  ).trim();
-  const cleanOrderId = String(normalized.orderId || '').trim();
-
-  const existingList = getPrintedInvoiceRecords();
-  const matchIdx = existingList.findIndex((item) => {
-    if (normalized.id && item.id && String(item.id) === String(normalized.id)) {
-      return true;
-    }
-    if (
-      normalized.documentNumber &&
-      normalized.documentNumber !== '—' &&
-      item.documentNumber === normalized.documentNumber
-    ) {
-      return true;
-    }
-    if (
-      cleanOrderId &&
-      cleanOrderId !== '—' &&
-      String(item.orderId || '').trim().toLowerCase() === cleanOrderId.toLowerCase()
-    ) {
-      return true;
-    }
-    if (
-      cleanTrack &&
-      cleanTrack !== '—' &&
-      String(item.tracking || '').trim().toLowerCase() === cleanTrack.toLowerCase()
-    ) {
-      return true;
-    }
-    return false;
-  });
-
-  const prev = matchIdx >= 0 ? existingList[matchIdx] : null;
-  const prevPrintCount = Number(prev?.printCount || prev?.prints?.length || 0);
-  const apiPrintCount = Array.isArray(normalized.prints) ? normalized.prints.length : 0;
-  const nextPrintCount = Math.max(prevPrintCount + 1, apiPrintCount, 1);
-
-  const mergedEntry = {
-    ...(prev || {}),
-    ...normalized,
-    tracking:
-      meta.tracking && meta.tracking !== '—'
-        ? meta.tracking
-        : normalized.tracking !== '—'
-          ? normalized.tracking
-          : prev?.tracking || '—',
-    lastPrintedAt: meta.printedAt || nowStr,
-    lastStationCode: meta.stationCode || prev?.lastStationCode || '—',
-    isReprint: Boolean(meta.isReprint || nextPrintCount > 1),
-    lastReprintReason: meta.reprintReason || prev?.lastReprintReason || null,
-    printCount: nextPrintCount
-  };
-
-  const nextList = [
-    mergedEntry,
-    ...existingList.filter((_, idx) => idx !== matchIdx)
-  ].slice(0, 500);
-
-  try {
-    localStorage.setItem(PRINTED_INVOICES_STORAGE_KEY, JSON.stringify(nextList));
-    invalidateOrdersAndDocsCache();
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('bir-printed-invoices-updated'));
-    }
-  } catch {
-    // ignore storage quota errors
+/** Tells open screens to reload from the server after a print. Saves nothing in the browser. */
+export function savePrintedInvoiceRecord() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('bir-printed-invoices-updated'));
   }
-
-  return nextList;
+  return [];
 }
 
 export function isOrderAlreadyPrinted(order, printedRecords = []) {
@@ -1251,177 +1199,78 @@ export function isOrderAlreadyPrinted(order, printedRecords = []) {
   });
 }
 
-export async function fetchActiveUnprintedOrders(
-  searchTerm = '',
-  { forceRefresh = false } = {}
-) {
-  const trimmed = searchTerm.trim();
-  const cacheKey = trimmed.toLowerCase();
-
-  if (forceRefresh) {
-    invalidateOrdersAndDocsCache();
-  } else if (unprintedOrdersMemCache.has(cacheKey)) {
-    const cachedEntry = unprintedOrdersMemCache.get(cacheKey);
-    if (trimmed || (cachedEntry?.unprintedOrders?.length ?? 0) >= 200) {
-      return {
-        ...cachedEntry,
-        cached: true
-      };
-    }
-    invalidateOrdersAndDocsCache();
-  }
-
-  const prepackQuery = trimmed
-    ? { problems_only: 0, limit: 200, q: trimmed }
-    : { problems_only: 0, limit: 200 };
-  const docsQuery = trimmed ? { q: trimmed, limit: 200 } : { limit: 200 };
-
-  const fetchAllPages = async (basePath, initialRes) => {
-    const items = [];
-    if (!initialRes?.ok || !initialRes?.data) return items;
-    items.push(...extractDocumentList(initialRes.data));
-
-    let nextUrl = initialRes.data?.next || null;
-    let page = 1;
-    while (nextUrl && page < 20) {
-      page++;
-      try {
-        const u = new URL(nextUrl, 'https://einvoice.ipolymersolutionscorp.com');
-        const pageRes = await request(`${basePath}?${u.searchParams.toString()}`, {
-          forceRefresh
-        });
-        if (pageRes.ok && pageRes.data) {
-          const pageItems = extractDocumentList(pageRes.data);
-          if (pageItems.length === 0) break;
-          items.push(...pageItems);
-          nextUrl = pageRes.data?.next || null;
-        } else {
-          break;
-        }
-      } catch {
-        break;
-      }
-    }
-    return items;
+/** A row of GET /api/orders/queue in the shape the Orders screen uses. Values exactly as the server sent them. */
+function normalizeQueueRow(row) {
+  const base = normalizeDocumentRecord(row) || {};
+  return {
+    ...base,
+    id: row.invoice_id ?? null,
+    documentNumber: row.invoice_number || '—',
+    orderId: row.platform_order_id || '—',
+    tracking: row.tracking_number || '—',
+    storeId: row.store_id ?? null,
+    storeName: row.store_name || base.storeName,
+    status: String(row.platform_order_status || base.status || '').toUpperCase(),
+    invoiceState: String(row.invoice_state || '').toLowerCase(),
+    holdReason: row.problem || null,
+    scanOutcome: row.scan_outcome || null,
+    totalAmount: formatMoney(toMoneyNumber(row.invoice_total), '0.00'),
+    orderDate: row.order_created_at || '—',
+    issuedAt: row.invoice_issued_at || '—',
+    printCount: Number(row.print_count || 0),
+    lastPrintedAt: row.last_printed_at || null,
+    scanAttempts: Number(row.attempts || 0),
+    lastAttemptAt: row.last_attempt_at || null,
+    lastAttemptOutcome: row.last_attempt_outcome || null,
+    raw: row
   };
+}
 
-  const [prepackRes, docsRes] = await Promise.all([
-    request(`/api/prepack${buildQueryString(prepackQuery)}`, { forceRefresh }),
-    request(`/api/documents${buildQueryString(docsQuery)}`, { forceRefresh })
-  ]);
-
-  const [prepackItems, docItems] = await Promise.all([
-    fetchAllPages('/api/prepack', prepackRes),
-    fetchAllPages('/api/documents', docsRes)
-  ]);
-
-  const localPrinted = getPrintedInvoiceRecords();
-  const apiDocsNormalized = docItems.map(normalizeDocumentRecord).filter(Boolean);
-  const apiPrinted = apiDocsNormalized.filter(
-    (d) =>
-      Number(d.printCount || 0) > 0 ||
-      (Array.isArray(d.prints) && d.prints.length > 0) ||
-      Boolean(d.lastPrintedAt && d.lastPrintedAt !== '—')
-  );
-  const allPrinted = [...localPrinted, ...apiPrinted];
-
-  const prepackNormalized = prepackItems.map(normalizeDocumentRecord).filter(Boolean);
-  const docByOrderKey = new Map();
-
-  for (const docNorm of apiDocsNormalized) {
-    const key =
-      docNorm.orderId && docNorm.orderId !== '—'
-        ? `${String(docNorm.platform).toLowerCase()}:${docNorm.orderId}`
-        : docNorm.tracking && docNorm.tracking !== '—'
-          ? `wb:${docNorm.tracking}`
-          : docNorm.id
-            ? `id:${docNorm.id}`
-            : null;
-    if (key) {
-      docByOrderKey.set(key, docNorm);
+/**
+ * The Daily Orders Queue from GET /api/orders/queue (backend 2026-11-09): orders with a waybill that are not
+ * picked up yet and not printed yet, one row per order, always live from the server. printedCount = orders still
+ * waiting for pickup whose invoice is already printed.
+ */
+export async function fetchActiveUnprintedOrders(searchTerm = '') {
+  const q = searchTerm.trim();
+  const rows = [];
+  let first = null;
+  let failed = null;
+  let offset = 0;
+  for (let page = 0; page < 20 && offset !== null; page++) {
+    const res = await request(`/api/orders/queue${buildQueryString({ printed: 0, limit: 1000, offset, q })}`);
+    if (!first) first = res;
+    if (!res.ok || !Array.isArray(res.data?.results)) {
+      failed = res;
+      break;
     }
+    rows.push(...res.data.results);
+    offset = res.data.next_offset ?? null;
   }
 
-  const matchedDocKeys = new Set();
-  const allOrders = prepackNormalized.map((prev) => {
-    const key =
-      prev.orderId && prev.orderId !== '—'
-        ? `${String(prev.platform).toLowerCase()}:${prev.orderId}`
-        : prev.tracking && prev.tracking !== '—'
-          ? `wb:${prev.tracking}`
-          : prev.id
-            ? `id:${prev.id}`
-            : null;
-    const norm = key ? docByOrderKey.get(key) : null;
-    if (!norm) return prev;
-    matchedDocKeys.add(key);
-    return {
-      ...prev,
-      ...norm,
-      id: norm.id || prev.id,
-      documentNumber:
-        norm.documentNumber && norm.documentNumber !== '—'
-          ? norm.documentNumber
-          : prev.documentNumber,
-      tracking:
-        norm.tracking && norm.tracking !== '—' ? norm.tracking : prev.tracking,
-      lines: norm.lines?.length ? norm.lines : prev.lines,
-      productSummary:
-        norm.productSummary && norm.productSummary !== '—'
-          ? norm.productSummary
-          : prev.productSummary,
-      totalAmount:
-        norm.totalAmount && norm.totalAmount !== '0.00'
-          ? norm.totalAmount
-          : prev.totalAmount,
-      orderDate:
-        norm.orderDate && norm.orderDate !== '—' ? norm.orderDate : prev.orderDate
-    };
-  });
-
-  for (const docNorm of apiDocsNormalized) {
-    const key =
-      docNorm.orderId && docNorm.orderId !== '—'
-        ? `${String(docNorm.platform).toLowerCase()}:${docNorm.orderId}`
-        : docNorm.tracking && docNorm.tracking !== '—'
-          ? `wb:${docNorm.tracking}`
-          : docNorm.id
-            ? `id:${docNorm.id}`
-            : null;
-    if (!key || !matchedDocKeys.has(key)) {
-      allOrders.push(docNorm);
-    }
+  let errorMessage = null;
+  if (failed && failed.status === 404) {
+    errorMessage = 'This screen needs the updated server (the orders queue). Ask IT to update the backend.';
+  } else if (failed) {
+    errorMessage =
+      failed.data?.message ||
+      failed.data?.detail ||
+      (failed.status === 503 ? 'The database is not answering. Try Refresh in a minute.' : null) ||
+      `Unable to load orders (${failed.status}).`;
+    if (rows.length) errorMessage = `Only part of the list loaded: ${errorMessage}`;
+  } else if (first?.data?.truncated) {
+    errorMessage = 'The list is too long to show in full. Search or filter by platform.';
   }
 
-  // Keep all orders visible so they can be browsed with pagination
-  const unprintedOrders = allOrders;
-
-  const uniquePrintedMap = new Map();
-  for (const pr of allPrinted) {
-    if (!pr) continue;
-    const k = String(pr.id || pr.documentNumber || pr.orderId || pr.tracking);
-    if (!uniquePrintedMap.has(k)) uniquePrintedMap.set(k, pr);
-  }
-
-  const result = {
-    ok: prepackRes.ok || docsRes.ok || allOrders.length > 0,
-    status: prepackRes.status || docsRes.status || 200,
-    unprintedOrders,
-    printedCount: uniquePrintedMap.size,
-    cached: Boolean(prepackRes.cached && docsRes.cached),
-    errorMessage:
-      !prepackRes.ok && !docsRes.ok
-        ? prepackRes.data?.detail ||
-          docsRes.data?.detail ||
-          `Unable to load orders (${prepackRes.status}).`
-        : null
+  return {
+    ok: !failed || rows.length > 0,
+    status: first?.status || 0,
+    unprintedOrders: rows.map(normalizeQueueRow),
+    printedCount: Number(first?.data?.printed_count || 0),
+    totals: first?.data?.totals || null,
+    cached: false,
+    errorMessage
   };
-
-  if (result.ok) {
-    unprintedOrdersMemCache.set(cacheKey, result);
-  }
-
-  return result;
 }
 
 function wrapTextLines(ctx, text, maxWidth) {
