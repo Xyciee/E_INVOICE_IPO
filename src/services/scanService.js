@@ -1202,8 +1202,15 @@ export function isOrderAlreadyPrinted(order, printedRecords = []) {
 /** A row of GET /api/orders/queue in the shape the Orders screen uses. Values exactly as the server sent them. */
 function normalizeQueueRow(row) {
   const base = normalizeDocumentRecord(row) || {};
+  // An invoiced order carries its issued invoice's own figures (as the old queue took them from /api/documents).
+  const fromInvoice = (value, fallback) =>
+    value === null || value === undefined ? fallback : formatMoney(toMoneyNumber(value), '0.00');
   return {
     ...base,
+    buyerName: row.buyer_name || base.buyerName,
+    vatableSales: fromInvoice(row.vatable_sales, base.vatableSales),
+    vatAmount: fromInvoice(row.vat_amount, base.vatAmount),
+    discountAmount: fromInvoice(row.discount_total, base.discountAmount),
     id: row.invoice_id ?? null,
     documentNumber: row.invoice_number || '—',
     orderId: row.platform_order_id || '—',
