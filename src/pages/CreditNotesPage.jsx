@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   FileMinus,
   Search,
@@ -6,12 +6,12 @@ import {
   RefreshCw,
   CheckCircle2,
   Clock,
-  ShieldAlert,
   ArrowRight,
   RotateCcw,
   X,
   FileCheck2,
-  Eye
+  Eye,
+  AlertTriangle
 } from 'lucide-react';
 import { api } from '../services/apiClient';
 import { useAuth } from '../context/AuthContext';
@@ -20,384 +20,646 @@ import PlatformBadge from '../components/PlatformBadge';
 import './pages.css';
 import './creditNotes.css';
 
-// Standard BIR RMC 98-2026 Reason Codes
-const REASON_CODES = [
-  { code: '01', label: 'Cancel & Reissue (Buyer TIN / Business Name)', default: true },
-  { code: '02', label: 'Goods Returned / Defective Merchandise' },
-  { code: '03', label: 'Order Cancelled by Customer / Platform' },
-  { code: '04', label: 'Post-Sale Platform Discount / Rebate Discrepancy' },
-  { code: '05', label: 'Other Commercial Adjustment / Correction' }
+/*
+ * Credit notes (accounting). Everything on this page comes from the server (2026-11-09):
+ *   GET  /api/credit-notes/candidates   work list (view_credit_worklist)
+ *   GET  /api/credit-notes              issued credit notes, the register (view_documents)
+ *   GET  /api/invoices/<id>/balance     what is still open per invoice line (view_credit_worklist)
+ *   POST /api/credit-notes              issue (issue_credit_note: Accounting and IT only)
+ *   GET  /api/documents/<id>/eis-json   BIR JSON preview (view_eis_json)
+ * An issued credit note can never be changed or deleted, so this page never shows anything as issued
+ * unless the server said so, and keeps no copy of the lists in the browser.
+ */
+
+// Correction codes the backend accepts (ledger/contract.py CORRECTION_CODES).
+const CORRECTION_CODES = [
+  { code: '01', label: 'Error on the invoice' },
+  { code: '02', label: 'Duplicate invoice' },
+  { code: '03', label: 'Amount reduced (part returned or refunded)' },
+  { code: '04', label: 'Order cancelled or fully returned' },
+  { code: '05', label: 'Returned for a replacement' },
+  { code: '09', label: 'Other reason' }
 ];
+
+const SUGGESTED_ACTIONS = {
+  credit_all: 'Credit everything still open',
+  credit_lines: 'Credit the returned units',
+  review_refund: 'Check the refund amount per line'
+};
+
+const CREDIT_MODES = [
+  { value: 'all', label: 'Everything still open on the invoice' },
+  { value: 'quantity', label: 'Returned units, per line' },
+  { value: 'amount', label: 'Money refunded, per line' }
+];
+
+const PLATFORM_OPTIONS = [
+  { value: '', label: 'All Platforms' },
+  { value: 'shopee', label: 'Shopee' },
+  { value: 'lazada', label: 'Lazada' },
+  { value: 'tiktok', label: 'TikTok Shop' }
+];
+
+const ISSUED_PAGE_SIZE = 100;
+const POSITIVE_NUMBER = /^\d+(\.\d+)?$/;
+
+// --- helpers ------------------------------------------------------------------------------------------------
+
+function unwrapList(data) {
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.results)) return data.results;
+  return [];
+}
+
+const FIELD_LABELS = {
+  invoice_id: 'Invoice',
+  correction_code: 'Correction code',
+  source_ref: 'Reference',
+  reason: 'Reason',
+  lines: 'Lines'
+};
+
+/** The server's own message for a failed call (plain English, written for people), or a fallback. */
+function serverMessage(res, fallback) {
+  if (!res || res.networkError) {
+    return 'Could not reach the server. Check the connection and try again.';
+  }
+  const d = res.data;
+  if (d && typeof d === 'object' && !Array.isArray(d)) {
+    if (typeof d.message === 'string' && d.message) return d.message;
+    if (typeof d.detail === 'string' && d.detail) return d.detail;
+    const parts = Object.entries(d)
+      .filter(([k]) => k !== 'error')
+      .map(([k, v]) => `${FIELD_LABELS[k] || k}: ${Array.isArray(v) ? v.join(' ') : String(v)}`);
+    if (parts.length) return parts.join(' ');
+  }
+  if (typeof d === 'string' && d && d.length < 300 && !d.trim().startsWith('<')) return d;
+  return `${fallback} (server answered ${res.status || 'no response'}).`;
+}
+
+function formatDateTime(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString('en-PH', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function formatMoney(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  return `₱${n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function toCents(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n * 100) : 0;
+}
+
+function centsToMoney(cents) {
+  return formatMoney((cents / 100).toFixed(2));
+}
+
+/** "2.000" -> "2", "1.500" -> "1.5" (display only). */
+function formatQty(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  const s = String(value);
+  return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
+}
+
+function codeLabel(code) {
+  return CORRECTION_CODES.find((c) => c.code === code)?.label || '';
+}
+
+// --- server calls (return plain results; the component decides what to show) --------------------------------
+
+async function fetchCandidates() {
+  const res = await api.get('/api/credit-notes/candidates');
+  if (!res.ok) return { ok: false, error: serverMessage(res, 'Could not load the work list') };
+  return { ok: true, rows: unwrapList(res.data) };
+}
+
+async function fetchIssued(platform, offset = 0) {
+  const res = await api.get('/api/credit-notes', {
+    platform: platform || undefined,
+    limit: ISSUED_PAGE_SIZE,
+    offset
+  });
+  if (!res.ok) return { ok: false, error: serverMessage(res, 'Could not load the issued credit notes') };
+  return {
+    ok: true,
+    rows: unwrapList(res.data),
+    totals: res.data?.totals || null,
+    nextOffset: res.data?.next_offset ?? null
+  };
+}
+
+async function fetchBalance(invoiceId) {
+  const res = await api.get(`/api/invoices/${encodeURIComponent(invoiceId)}/balance`);
+  if (!res.ok) return { ok: false, error: serverMessage(res, 'Could not load the invoice lines') };
+  return { ok: true, rows: unwrapList(res.data) };
+}
+
+/**
+ * Finds the invoice for what the person typed: an invoice number, an order id or waybill (via /api/documents?q=),
+ * or the invoice's internal id (digits only). Returns {ok, invoice: {id, document_number, ...}} or {ok:false, error}.
+ */
+async function resolveInvoice(text) {
+  const typed = text.trim();
+  if (!typed) return { ok: false, error: 'Type the invoice number first.' };
+  const res = await api.get('/api/documents', { q: typed });
+  if (!res.ok) return { ok: false, error: serverMessage(res, 'Could not search for the invoice') };
+  const invoices = unwrapList(res.data).filter((d) => d.doc_type === 'invoice');
+  const exact = invoices.filter((d) => String(d.document_number || '').toLowerCase() === typed.toLowerCase());
+  if (exact.length === 1) return { ok: true, invoice: exact[0] };
+  if (invoices.length === 1) return { ok: true, invoice: invoices[0] };
+  if (invoices.length > 1) {
+    const numbers = invoices.map((d) => d.document_number).join(', ');
+    return { ok: false, error: `Several invoices match "${typed}": ${numbers}. Type the full invoice number.` };
+  }
+  if (/^\d+$/.test(typed)) return { ok: true, invoice: { id: Number(typed), document_number: null } };
+  return { ok: false, error: `No invoice found for "${typed}".` };
+}
+
+/** Modal lines from the balance rows, pre-filled with the suggested lines ([{line_no, quantity|amount}]). */
+function buildLines(balanceRows, suggestedLines) {
+  const suggested = new Map((Array.isArray(suggestedLines) ? suggestedLines : []).map((l) => [Number(l.line_no), l]));
+  return balanceRows.map((row) => {
+    const s = suggested.get(Number(row.line_no));
+    return {
+      ...row,
+      qty: s && s.quantity !== undefined && s.quantity !== null ? String(s.quantity) : '',
+      amount: s && s.amount !== undefined && s.amount !== null ? String(s.amount) : ''
+    };
+  });
+}
+
+function modeForCandidate(candidate) {
+  const lines = Array.isArray(candidate.suggested_lines) ? candidate.suggested_lines : [];
+  if (lines.length > 0) return lines.some((l) => l.amount !== undefined && l.amount !== null) ? 'amount' : 'quantity';
+  if (candidate.suggested_action === 'review_refund') return 'amount';
+  return 'all';
+}
+
+// --- page ---------------------------------------------------------------------------------------------------
 
 export default function CreditNotesPage() {
   const { user } = useAuth();
   const notify = useNotify();
   const confirm = useConfirm();
 
+  const permissions = useMemo(() => new Set(user?.permissions || []), [user]);
+  const canIssue = permissions.has('issue_credit_note');
+  const canViewEis = permissions.has('view_eis_json');
+
   const [activeTab, setActiveTab] = useState('candidates'); // 'candidates' | 'issued' | 'balance'
   const [searchQuery, setSearchQuery] = useState('');
-  const [platformFilter, setPlatformFilter] = useState('All');
-  const [loadingCandidates, setLoadingCandidates] = useState(false);
+  const [platformFilter, setPlatformFilter] = useState('');
 
-  // Candidates & Issued Data State
-  // Only what the server returns: no built-in sample rows (2026-11-09).
+  // Work list
   const [candidates, setCandidates] = useState([]);
-  const [issuedLedger, setIssuedLedger] = useState([]);
+  const [candidatesError, setCandidatesError] = useState('');
+  const [loadingCandidates, setLoadingCandidates] = useState(true);
 
-  // Issue Modal State
+  // Issued credit notes (register)
+  const [issued, setIssued] = useState([]);
+  const [issuedTotals, setIssuedTotals] = useState(null);
+  const [issuedNextOffset, setIssuedNextOffset] = useState(null);
+  const [issuedError, setIssuedError] = useState('');
+  const [loadingIssued, setLoadingIssued] = useState(true);
+
+  // Issue modal
   const [showIssueModal, setShowIssueModal] = useState(false);
   const [selectedCandidate, setSelectedCandidate] = useState(null);
-  const [modalInvoiceId, setModalInvoiceId] = useState('');
-  const [modalReasonCode, setModalReasonCode] = useState('01');
-  const [modalReasonText, setModalReasonText] = useState('');
+  const [modalInvoiceInput, setModalInvoiceInput] = useState('');
+  const [modalInvoice, setModalInvoice] = useState(null); // {id, document_number, platform, store_id, ...}
+  const [modalCode, setModalCode] = useState('');
+  const [modalSourceRef, setModalSourceRef] = useState('');
+  const [modalReason, setModalReason] = useState('');
+  const [modalMode, setModalMode] = useState('all');
   const [modalLines, setModalLines] = useState([]);
-  const [fetchingBalance, setFetchingBalance] = useState(false);
+  const [modalLinesError, setModalLinesError] = useState('');
+  const [modalSubmitError, setModalSubmitError] = useState('');
+  const [fetchingLines, setFetchingLines] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const linesRequest = useRef(0);
 
-  // JSON Preview Modal State
-  const [previewDoc, setPreviewDoc] = useState(null);
+  // BIR JSON preview
+  const [preview, setPreview] = useState(null); // {doc, loading, results, error}
 
-  // Balance Inspector State
-  const [balanceInputInvoice, setBalanceInputInvoice] = useState('INV-2026-0428');
-  const [balanceResult, setBalanceResult] = useState(null);
+  // Balance inspector
+  const [balanceInput, setBalanceInput] = useState('');
+  const [balanceInvoice, setBalanceInvoice] = useState(null);
+  const [balanceRows, setBalanceRows] = useState([]);
+  const [balanceError, setBalanceError] = useState('');
   const [balanceLoading, setBalanceLoading] = useState(false);
 
-  // Fetch candidate list from live backend /api/credit-notes/candidates
-  const fetchLiveCandidates = async (showNotification = false) => {
-    setLoadingCandidates(true);
-    try {
-      const res = await api.get('/api/credit-notes/candidates', {}, { forceRefresh: showNotification });
-      if (res.ok && Array.isArray(res.data)) {
-        setCandidates(res.data);
-      }
-      if (res.ok && Array.isArray(res.data) && res.data.length > 0) {
-        if (showNotification) {
-          notify.success('Updated', `Fetched ${res.data.length} candidate orders from backend.`);
-        }
-      } else {
-        if (showNotification) {
-          notify.info('Work List Current', 'No pending candidate orders reported by backend.');
-        }
-      }
-    } catch (err) {
-      console.warn('Could not load candidates from backend:', err);
-      if (showNotification) {
-        notify.warning('Work list not loaded', 'Could not load the work list: the server returned an error or is offline. Try again in a minute.');
-      }
-    } finally {
-      setLoadingCandidates(false);
-    }
-  };
-
+  // Work list: load once on open (the Refresh button reloads).
   useEffect(() => {
-    fetchLiveCandidates(false);
+    let active = true;
+    (async () => {
+      const r = await fetchCandidates();
+      if (!active) return;
+      if (r.ok) {
+        setCandidates(r.rows);
+        setCandidatesError('');
+      } else {
+        setCandidatesError(r.error);
+      }
+      setLoadingCandidates(false);
+    })();
+    return () => {
+      active = false;
+    };
   }, []);
 
-  // Filter candidates
-  const filteredCandidates = useMemo(() => {
-    return candidates.filter((item) => {
-      const matchesSearch =
-        searchQuery === '' ||
-        item.orderId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.customer?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.invoiceId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.tracking?.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesPlatform = platformFilter === 'All' || item.platform === platformFilter;
-      return matchesSearch && matchesPlatform;
-    });
-  }, [candidates, searchQuery, platformFilter]);
+  // Issued list: the platform filter is applied by the server, so totals cover every matching credit note.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const r = await fetchIssued(platformFilter, 0);
+      if (!active) return;
+      if (r.ok) {
+        setIssued(r.rows);
+        setIssuedTotals(r.totals);
+        setIssuedNextOffset(r.nextOffset);
+        setIssuedError('');
+      } else {
+        setIssued([]);
+        setIssuedTotals(null);
+        setIssuedNextOffset(null);
+        setIssuedError(r.error);
+      }
+      setLoadingIssued(false);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [platformFilter]);
 
-  // Filter issued ledger
-  const filteredIssued = useMemo(() => {
-    return issuedLedger.filter((item) => {
-      const matchesSearch =
-        searchQuery === '' ||
-        item.id?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.invoiceId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.orderId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.reason?.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesPlatform = platformFilter === 'All' || item.platform === platformFilter;
-      return matchesSearch && matchesPlatform;
-    });
-  }, [issuedLedger, searchQuery, platformFilter]);
-
-  // Launch Issue Modal for a specific candidate
-  const handleOpenIssueCandidate = async (candidate) => {
-    setSelectedCandidate(candidate);
-    setModalInvoiceId(candidate.invoiceId);
-    setModalReasonCode(candidate.suggestedCode || '01');
-    setModalReasonText(candidate.trigger || '');
-
-    // Setup lines
-    if (candidate.items && candidate.items.length > 0) {
-      setModalLines(
-        candidate.items.map((it) => ({
-          lineId: it.id,
-          name: it.name,
-          creditable: parseFloat(it.creditable || it.unitPrice || '0').toFixed(2),
-          amountToCredit: parseFloat(it.creditable || it.unitPrice || '0').toFixed(2)
-        }))
-      );
+  const reloadCandidates = async () => {
+    setLoadingCandidates(true);
+    const r = await fetchCandidates();
+    if (r.ok) {
+      setCandidates(r.rows);
+      setCandidatesError('');
     } else {
-      setModalLines([
-        {
-          lineId: 'line_1',
-          name: `Goods for order ${candidate.orderId}`,
-          creditable: parseFloat(candidate.totalInvoiceAmount || '0').toFixed(2),
-          amountToCredit: parseFloat(candidate.totalInvoiceAmount || '0').toFixed(2)
-        }
-      ]);
+      setCandidatesError(r.error);
     }
-
-    setShowIssueModal(true);
+    setLoadingCandidates(false);
+    return r;
   };
 
-  // Open manual issue modal
-  const handleOpenManualIssue = () => {
-    setSelectedCandidate(null);
-    setModalInvoiceId('');
-    setModalReasonCode('01');
-    setModalReasonText('');
+  const reloadIssued = async () => {
+    setLoadingIssued(true);
+    const r = await fetchIssued(platformFilter, 0);
+    if (r.ok) {
+      setIssued(r.rows);
+      setIssuedTotals(r.totals);
+      setIssuedNextOffset(r.nextOffset);
+      setIssuedError('');
+    } else {
+      setIssuedError(r.error);
+    }
+    setLoadingIssued(false);
+    return r;
+  };
+
+  const handleRefresh = async () => {
+    const [c, i] = await Promise.all([reloadCandidates(), reloadIssued()]);
+    if (c.ok && i.ok) {
+      notify.success('Updated', `Work list: ${c.rows.length} invoice(s). Issued credit notes reloaded.`);
+    } else {
+      notify.warning('Not everything loaded', c.ok ? i.error : c.error);
+    }
+  };
+
+  const handleLoadMoreIssued = async () => {
+    if (issuedNextOffset === null) return;
+    setLoadingIssued(true);
+    const r = await fetchIssued(platformFilter, issuedNextOffset);
+    if (r.ok) {
+      setIssued((prev) => [...prev, ...r.rows]);
+      setIssuedTotals(r.totals);
+      setIssuedNextOffset(r.nextOffset);
+    } else {
+      notify.danger('Could not load more', r.error);
+    }
+    setLoadingIssued(false);
+  };
+
+  // --- filters (work list: in the browser; issued: platform on the server, search on the loaded rows) ---
+
+  const term = searchQuery.trim().toLowerCase();
+
+  const filteredCandidates = useMemo(
+    () =>
+      candidates.filter((c) => {
+        const matchesSearch =
+          !term ||
+          [c.invoice_number, c.platform_order_id, c.explanation, c.order_status_now]
+            .some((v) => String(v || '').toLowerCase().includes(term));
+        const matchesPlatform = !platformFilter || c.platform === platformFilter;
+        return matchesSearch && matchesPlatform;
+      }),
+    [candidates, term, platformFilter]
+  );
+
+  const filteredIssued = useMemo(
+    () =>
+      issued.filter(
+        (d) =>
+          !term ||
+          [d.document_number, d.original_document_number, d.platform_order_id, d.correction_reason, d.store_name]
+            .some((v) => String(v || '').toLowerCase().includes(term))
+      ),
+    [issued, term]
+  );
+
+  const openOnWorkListCents = useMemo(
+    () => candidates.reduce((acc, c) => acc + toCents(c.open_amount), 0),
+    [candidates]
+  );
+
+  // --- issue modal ------------------------------------------------------------------------------------
+
+  const resetModal = () => {
+    setModalSubmitError('');
+    setModalLinesError('');
     setModalLines([]);
-    setShowIssueModal(true);
+    setFetchingLines(false);
   };
 
-  // Live balance fetch for manual invoice ID
-  const handleLookupInvoiceBalance = async () => {
-    if (!modalInvoiceId.trim()) {
-      notify.warning('Invoice ID Required', 'Please enter an invoice ID to inspect open balance.');
+  /** Loads the invoice's open lines; ignores answers to an older request (another invoice opened since). */
+  const loadModalLines = async (invoiceId, suggestedLines) => {
+    const requestNo = ++linesRequest.current;
+    setFetchingLines(true);
+    setModalLinesError('');
+    const r = await fetchBalance(invoiceId);
+    if (requestNo !== linesRequest.current) return;
+    setFetchingLines(false);
+    if (!r.ok) {
+      setModalLines([]);
+      setModalLinesError(r.error);
       return;
     }
-    setFetchingBalance(true);
-    try {
-      const res = await api.get(`/api/invoices/${encodeURIComponent(modalInvoiceId.trim())}/balance`);
-      if (res.ok && res.data) {
-        const lines = res.data.lines || [
-          {
-            line_id: 'line_1',
-            description: res.data.description || `Invoice Item for ${modalInvoiceId}`,
-            open_balance: res.data.open_balance || res.data.balance || '500.00'
-          }
-        ];
-        setModalLines(
-          lines.map((l) => ({
-            lineId: l.line_id || l.id || 'line_1',
-            name: l.description || l.name || 'Product / Item',
-            creditable: parseFloat(l.open_balance || l.balance || '0').toFixed(2),
-            amountToCredit: parseFloat(l.open_balance || l.balance || '0').toFixed(2)
-          }))
-        );
-        notify.success('Balance Loaded', `Retrieved open balance for ${modalInvoiceId}.`);
-      } else {
-        notify.warning('Fallback Balance', `Using estimated line balance for ${modalInvoiceId}.`);
-        setModalLines([
-          {
-            lineId: 'line_1',
-            name: `Invoice lines for ${modalInvoiceId}`,
-            creditable: '840.00',
-            amountToCredit: '840.00'
-          }
-        ]);
-      }
-    } catch {
-      notify.danger('Balance Lookup Failed', 'Could not fetch balance from API.');
-    } finally {
-      setFetchingBalance(false);
+    if (r.rows.length === 0) {
+      setModalLines([]);
+      setModalLinesError('No lines found for this invoice. Check the invoice number.');
+      return;
     }
+    setModalLines(buildLines(r.rows, suggestedLines));
+    const number = r.rows[0]?.invoice_number;
+    if (number) setModalInvoice((prev) => (prev ? { ...prev, document_number: prev.document_number || number } : prev));
   };
 
-  // Inspector tab balance check
-  const handleInspectBalance = async () => {
-    if (!balanceInputInvoice.trim()) return;
-    setBalanceLoading(true);
-    try {
-      const res = await api.get(`/api/invoices/${encodeURIComponent(balanceInputInvoice.trim())}/balance`);
-      if (res.ok && res.data) {
-        setBalanceResult(res.data);
-      } else {
-        // Fallback demo balance simulation
-        setBalanceResult({
-          invoice_id: balanceInputInvoice.trim(),
-          status: 'issued',
-          original_total: '840.00',
-          total_credited: '0.00',
-          open_balance: '840.00',
-          lines: [
-            { line_id: 'l1', description: 'Industrial Protective Goods', original_amount: '840.00', credited: '0.00', remaining: '840.00' }
-          ]
-        });
-      }
-    } catch {
-      notify.danger('Error', 'Failed to retrieve balance.');
-    } finally {
-      setBalanceLoading(false);
-    }
+  const handleOpenIssueCandidate = (candidate) => {
+    resetModal();
+    setSelectedCandidate(candidate);
+    setModalInvoice({
+      id: candidate.invoice_id,
+      document_number: candidate.invoice_number,
+      platform: candidate.platform,
+      store_id: candidate.store_id,
+      platform_order_id: candidate.platform_order_id
+    });
+    setModalInvoiceInput(candidate.invoice_number || String(candidate.invoice_id));
+    setModalCode(candidate.suggested_correction_code || '');
+    setModalSourceRef(candidate.suggested_source_ref || '');
+    setModalReason('');
+    setModalMode(modeForCandidate(candidate));
+    setShowIssueModal(true);
+    loadModalLines(candidate.invoice_id, candidate.suggested_lines);
   };
 
-  // Calculate total amount to credit
-  const totalCreditAmount = useMemo(() => {
-    return modalLines
-      .reduce((acc, curr) => acc + (parseFloat(curr.amountToCredit) || 0), 0)
-      .toFixed(2);
-  }, [modalLines]);
+  const handleOpenManualIssue = () => {
+    resetModal();
+    linesRequest.current++;
+    setSelectedCandidate(null);
+    setModalInvoice(null);
+    setModalInvoiceInput('');
+    setModalCode('');
+    setModalSourceRef('');
+    setModalReason('');
+    setModalMode('all');
+    setShowIssueModal(true);
+  };
 
-  // Line amount input change
-  const handleLineAmountChange = (index, value) => {
+  const handleOpenIssueFromBalance = () => {
+    if (!balanceInvoice) return;
+    resetModal();
+    linesRequest.current++;
+    setSelectedCandidate(null);
+    setModalInvoice(balanceInvoice);
+    setModalInvoiceInput(balanceInvoice.document_number || String(balanceInvoice.id));
+    setModalCode('');
+    setModalSourceRef('');
+    setModalReason('');
+    setModalMode('all');
+    setModalLines(buildLines(balanceRows, null));
+    setShowIssueModal(true);
+  };
+
+  const handleModalFindInvoice = async () => {
+    setModalSubmitError('');
+    linesRequest.current++;
+    setFetchingLines(true);
+    setModalLines([]);
+    setModalInvoice(null);
+    const found = await resolveInvoice(modalInvoiceInput);
+    if (!found.ok) {
+      setFetchingLines(false);
+      setModalLinesError(found.error);
+      return;
+    }
+    setModalInvoice(found.invoice);
+    await loadModalLines(found.invoice.id, null);
+  };
+
+  const updateLine = (index, field, value) => {
+    setModalLines((prev) => prev.map((line, i) => (i === index ? { ...line, [field]: value } : line)));
+  };
+
+  const fillLineRemaining = (index) => {
     setModalLines((prev) =>
       prev.map((line, i) => {
         if (i !== index) return line;
-        const maxVal = parseFloat(line.creditable) || 0;
-        let num = parseFloat(value);
-        if (isNaN(num)) num = 0;
-        if (num > maxVal) num = maxVal; // Prevent over-crediting
-        if (num < 0) num = 0;
-        return { ...line, amountToCredit: value };
+        return modalMode === 'quantity'
+          ? { ...line, qty: formatQty(line.remaining_quantity) }
+          : { ...line, amount: line.remaining_amount ?? '' };
       })
     );
   };
 
-  // Set line to full creditable amount
-  const handleLineCreditFull = (index) => {
-    setModalLines((prev) =>
-      prev.map((line, i) => {
-        if (i !== index) return line;
-        return { ...line, amountToCredit: line.creditable };
-      })
-    );
+  const openTotalCents = useMemo(
+    () => modalLines.reduce((acc, l) => acc + toCents(l.remaining_amount), 0),
+    [modalLines]
+  );
+
+  const enteredAmountCents = useMemo(
+    () => modalLines.reduce((acc, l) => acc + (POSITIVE_NUMBER.test(l.amount.trim()) ? toCents(l.amount) : 0), 0),
+    [modalLines]
+  );
+
+  /** Checks the form; returns {error} or {payload}. The server checks everything again (it has the last word). */
+  const buildPayload = () => {
+    if (!modalInvoice?.id) return { error: 'Find the invoice first.' };
+    if (modalLines.length === 0) return { error: 'The invoice lines are not loaded yet.' };
+    if (!CORRECTION_CODES.some((c) => c.code === modalCode)) return { error: 'Choose a correction code.' };
+    const sourceRef = modalSourceRef.trim();
+    if (!sourceRef) return { error: 'Type a reference for this adjustment (for example "cancel" or "return:123").' };
+    if (sourceRef.length > 100) return { error: 'The reference is too long (100 characters at most).' };
+    if (sourceRef.toLowerCase() === 'sale') return { error: '"sale" is used by invoices. Choose another reference.' };
+    const reason = modalReason.trim();
+    if (!reason) return { error: 'Write the reason for this credit note.' };
+    if (reason.length > 500) return { error: 'The reason is too long (500 characters at most).' };
+
+    let lines = null;
+    if (modalMode === 'all') {
+      if (openTotalCents <= 0) return { error: 'Nothing is left open on this invoice.' };
+    } else {
+      const field = modalMode === 'quantity' ? 'qty' : 'amount';
+      const limitField = modalMode === 'quantity' ? 'remaining_quantity' : 'remaining_amount';
+      const what = modalMode === 'quantity' ? 'units' : 'amount';
+      lines = [];
+      for (const line of modalLines) {
+        const value = String(line[field] || '').trim();
+        if (!value) continue;
+        if (!POSITIVE_NUMBER.test(value) || Number(value) <= 0) {
+          return { error: `Line ${line.line_no}: type a number above zero, or leave it empty.` };
+        }
+        if (Number(value) > Number(line[limitField] || 0)) {
+          return {
+            error: `Line ${line.line_no}: ${value} is more than the ${what} still open (${
+              modalMode === 'quantity' ? formatQty(line[limitField]) : formatMoney(line[limitField])
+            }).`
+          };
+        }
+        lines.push(modalMode === 'quantity' ? { line_no: line.line_no, quantity: value } : { line_no: line.line_no, amount: value });
+      }
+      if (lines.length === 0) return { error: `Enter the ${what} to credit on at least one line.` };
+    }
+
+    return {
+      payload: {
+        invoice_id: modalInvoice.id,
+        correction_code: modalCode,
+        source_ref: sourceRef,
+        reason,
+        lines
+      }
+    };
   };
 
-  // Submit Credit Note (calls POST /api/credit-notes)
   const handleSubmitCreditNote = async (e) => {
     e.preventDefault();
-
-    if (!modalInvoiceId.trim()) {
-      notify.warning('Validation', 'Invoice ID is mandatory.');
+    setModalSubmitError('');
+    const { error, payload } = buildPayload();
+    if (error) {
+      setModalSubmitError(error);
       return;
     }
 
-    if (!modalReasonText.trim()) {
-      notify.warning('Validation', 'Please provide a clear reason for this credit note audit record.');
-      return;
-    }
-
-    if (parseFloat(totalCreditAmount) <= 0) {
-      notify.warning('Validation', 'Credit note amount must be greater than ₱0.00.');
-      return;
-    }
-
-    // Check over-crediting constraint
-    for (const l of modalLines) {
-      if (parseFloat(l.amountToCredit) > parseFloat(l.creditable)) {
-        notify.danger('Over-crediting Error', `Line "${l.name}" exceeds remaining open balance of ₱${l.creditable}.`);
-        return;
-      }
-    }
+    const invoiceLabel = modalInvoice.document_number || `#${modalInvoice.id}`;
+    const what =
+      payload.lines === null
+        ? `everything still open (${centsToMoney(openTotalCents)})`
+        : modalMode === 'amount'
+          ? `${centsToMoney(enteredAmountCents)} on ${payload.lines.length} line(s)`
+          : `returned units on ${payload.lines.length} line(s)`;
 
     const confirmed = await confirm({
-      title: 'Issue Immutable Credit Note?',
-      message: `You are about to issue Credit Note for ₱${totalCreditAmount} against Invoice ${modalInvoiceId}. Once submitted, this cannot be modified or deleted per BIR RMC 98-2026 EIS guidelines.`,
+      title: 'Issue this credit note?',
+      message: `Credit ${what} of invoice ${invoiceLabel}, code ${payload.correction_code}. An issued credit note can never be changed or deleted.`,
       confirmText: 'Issue Credit Note',
-      cancelText: 'Cancel & Review',
+      cancelText: 'Go back',
       variant: 'warning'
     });
-
     if (!confirmed) return;
 
     setIsSubmitting(true);
-    const payload = {
-      invoice_id: modalInvoiceId.trim(),
-      reason_code: modalReasonCode,
-      reason: modalReasonText.trim(),
-      lines: modalLines.map((l) => ({
-        line_id: l.lineId,
-        amount: parseFloat(l.amountToCredit).toFixed(2)
-      }))
-    };
+    const res = await api.post('/api/credit-notes', payload);
+    setIsSubmitting(false);
 
-    try {
-      const res = await api.post('/api/credit-notes', payload);
+    if (!res.ok) {
+      // Nothing was issued (400 = form problem, 409 = the database refused). Show the server's words.
+      const message = res.networkError
+        ? 'Could not reach the server, so it is not known whether the credit note was issued. Try again: sending the same reference again never issues a second credit note.'
+        : serverMessage(res, 'The credit note was not issued');
+      setModalSubmitError(message);
+      notify.danger('Credit note not issued', message);
+      return;
+    }
 
-      const newCnId = res.data?.id || `CN-2026-${String(Math.floor(Math.random() * 9000) + 1000)}`;
-
-      // Append to issued ledger
-      const newEntry = {
-        id: newCnId,
-        invoiceId: modalInvoiceId.trim(),
-        orderId: selectedCandidate?.orderId || 'Direct-Issue',
-        platform: selectedCandidate?.platform || 'Direct',
-        storeName: selectedCandidate?.storeName || 'Ipolymer Solutions Corp.',
-        date: new Date().toLocaleDateString('en-PH', {
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric'
-        }) + ' ' + new Date().toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' }) + ' Manila',
-        reasonCode: modalReasonCode,
-        reason: modalReasonText.trim(),
-        amount: totalCreditAmount,
-        status: 'EIS Registered',
-        author: user?.username || 'accounting_staff'
-      };
-
-      setIssuedLedger((prev) => [newEntry, ...prev]);
-
-      // Remove from candidates if it was selected
-      if (selectedCandidate) {
-        setCandidates((prev) => prev.filter((c) => c.id !== selectedCandidate.id));
-      }
-
-      notify.success(
-        'Credit Note Issued',
-        `Successfully issued ${newCnId} for ₱${totalCreditAmount}. Write-once audit ledger updated.`
+    const doc = res.data?.document || {};
+    const number = doc.document_number || 'the credit note';
+    if (res.data?.already_issued) {
+      notify.info(
+        'Already issued earlier',
+        `${number} (${formatMoney(doc.total_amount)}) was already issued for reference "${payload.source_ref}". Nothing new was issued.`
       );
-
-      setShowIssueModal(false);
-      setActiveTab('issued');
-    } catch (err) {
-      notify.danger('Issue Failed', err.message || 'Unable to issue credit note to backend.');
-    } finally {
-      setIsSubmitting(false);
+    } else {
+      notify.success('Credit note issued', `${number} for ${formatMoney(doc.total_amount)} against invoice ${invoiceLabel}.`);
     }
+
+    setShowIssueModal(false);
+    setActiveTab('issued');
+    await Promise.all([reloadCandidates(), reloadIssued()]);
   };
 
-  // View BIR EIS JSON preview
-  const handleViewEisJson = async (cn) => {
-    try {
-      const res = await api.get(`/api/documents/${encodeURIComponent(cn.id)}/eis-json`);
-      if (res.ok && res.data) {
-        setPreviewDoc({ ...cn, eisJson: res.data });
-      } else {
-        // Sample standard BIR payload
-        setPreviewDoc({
-          ...cn,
-          eisJson: {
-            header: {
-              document_type: 'CREDIT_NOTE',
-              document_number: cn.id,
-              referenced_invoice: cn.invoiceId,
-              issue_date: new Date().toISOString(),
-              seller_tin: '000-849-219-000',
-              seller_name: 'Ipolymer Solutions Corp.',
-              reason_code: cn.reasonCode,
-              reason_description: cn.reason
-            },
-            financial_summary: {
-              currency: 'PHP',
-              total_credited_amount: cn.amount,
-              vatable_sales_deduction: (parseFloat(cn.amount) / 1.12).toFixed(2),
-              vat_amount_deduction: (parseFloat(cn.amount) - parseFloat(cn.amount) / 1.12).toFixed(2)
-            },
-            compliance: {
-              bir_rmc: '98-2026',
-              validation_status: 'PASSED_SCHEMA_V1.2',
-              timestamp_utc8: new Date().toISOString()
-            }
-          }
-        });
-      }
-    } catch {
-      notify.danger('Failed', 'Could not generate EIS JSON preview.');
-    }
+  // --- BIR JSON preview -------------------------------------------------------------------------------
+
+  const handleViewEisJson = async (doc) => {
+    setPreview({ doc, loading: true, results: [], error: '' });
+    const res = await api.get(`/api/documents/${encodeURIComponent(doc.id)}/eis-json`);
+    setPreview((prev) => {
+      if (!prev || prev.doc.id !== doc.id) return prev;
+      return res.ok
+        ? { doc, loading: false, results: unwrapList(res.data), error: '' }
+        : { doc, loading: false, results: [], error: serverMessage(res, 'Could not load the BIR JSON preview') };
+    });
   };
+
+  // --- balance inspector ------------------------------------------------------------------------------
+
+  const handleInspectBalance = async () => {
+    setBalanceLoading(true);
+    setBalanceError('');
+    setBalanceRows([]);
+    setBalanceInvoice(null);
+    const found = await resolveInvoice(balanceInput);
+    if (!found.ok) {
+      setBalanceError(found.error);
+      setBalanceLoading(false);
+      return;
+    }
+    const r = await fetchBalance(found.invoice.id);
+    setBalanceLoading(false);
+    if (!r.ok) {
+      setBalanceError(r.error);
+      return;
+    }
+    if (r.rows.length === 0) {
+      setBalanceError('No lines found for this invoice. Check the invoice number.');
+      return;
+    }
+    setBalanceInvoice({ ...found.invoice, document_number: found.invoice.document_number || r.rows[0].invoice_number });
+    setBalanceRows(r.rows);
+  };
+
+  const balanceOpenCents = useMemo(() => balanceRows.reduce((acc, l) => acc + toCents(l.remaining_amount), 0), [balanceRows]);
+
+  // --- render -----------------------------------------------------------------------------------------
+
+  const issuedCount = issuedTotals?.credit_note?.count ?? issued.length;
+  const issuedTotalAmount = issuedTotals?.credit_note?.total_amount;
 
   return (
     <div className="cn-page">
@@ -414,38 +676,47 @@ export default function CreditNotesPage() {
             type="button"
             className="btn btn-outline"
             style={{ borderRadius: 4 }}
-            onClick={() => fetchLiveCandidates(true)}
-            disabled={loadingCandidates}
-            title="Refresh candidate orders from backend"
+            onClick={handleRefresh}
+            disabled={loadingCandidates || loadingIssued}
+            title="Reload the work list and the issued credit notes from the server"
           >
-            <RefreshCw size={15} className={loadingCandidates ? 'spinner' : ''} />
+            <RefreshCw size={15} className={loadingCandidates || loadingIssued ? 'spinner' : ''} />
             <span>Refresh</span>
           </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            style={{ borderRadius: 4 }}
-            onClick={handleOpenManualIssue}
-          >
-            <Plus size={16} />
-            <span>Issue Credit Note</span>
-          </button>
+          {canIssue && (
+            <button type="button" className="btn btn-primary" style={{ borderRadius: 4 }} onClick={handleOpenManualIssue}>
+              <Plus size={16} />
+              <span>Issue Credit Note</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Compliance Notice Banner */}
       {/* Stats Summary Cards */}
       <div className="cn-stats-grid">
         <div className="cn-stat-card">
           <div className="cn-stat-top">
-            <span className="cn-stat-label">Pending Candidates</span>
+            <span className="cn-stat-label">Work List</span>
             <div className="cn-stat-icon">
               <Clock size={20} />
             </div>
           </div>
-          <div className="cn-stat-value">{candidates.length}</div>
+          <div className="cn-stat-value">{loadingCandidates ? '…' : candidates.length}</div>
           <div className="cn-stat-subtext">
-            <span>Orders flagged as cancelled or returned</span>
+            <span>Invoices of cancelled, returned or refunded orders</span>
+          </div>
+        </div>
+
+        <div className="cn-stat-card">
+          <div className="cn-stat-top">
+            <span className="cn-stat-label">Open on Work List</span>
+            <div className="cn-stat-icon">
+              <AlertTriangle size={20} />
+            </div>
+          </div>
+          <div className="cn-stat-value">{loadingCandidates ? '…' : centsToMoney(openOnWorkListCents)}</div>
+          <div className="cn-stat-subtext">
+            <span>Still open on those invoices</span>
           </div>
         </div>
 
@@ -456,39 +727,22 @@ export default function CreditNotesPage() {
               <FileCheck2 size={20} />
             </div>
           </div>
-          <div className="cn-stat-value">{issuedLedger.length}</div>
+          <div className="cn-stat-value">{loadingIssued && !issuedTotals ? '…' : issuedCount}</div>
           <div className="cn-stat-subtext">
-            <span>Total records in immutable ledger</span>
+            <span>{platformFilter ? 'For the chosen platform' : 'All platforms'}</span>
           </div>
         </div>
 
         <div className="cn-stat-card">
           <div className="cn-stat-top">
-            <span className="cn-stat-label">Total Credited Value</span>
+            <span className="cn-stat-label">Total Credited</span>
             <div className="cn-stat-icon">
               <RotateCcw size={20} />
             </div>
           </div>
-          <div className="cn-stat-value">
-            ₱{issuedLedger.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
-          </div>
+          <div className="cn-stat-value">{issuedTotalAmount !== undefined ? formatMoney(issuedTotalAmount) : '—'}</div>
           <div className="cn-stat-subtext">
-            <span>Deductions logged for BIR VAT reconciliation</span>
-          </div>
-        </div>
-
-        <div className="cn-stat-card">
-          <div className="cn-stat-top">
-            <span className="cn-stat-label">Compliance Engine</span>
-            <div className="cn-stat-icon">
-              <CheckCircle2 size={20} />
-            </div>
-          </div>
-          <div className="cn-stat-value" style={{ fontSize: '1.2rem', color: 'var(--accent-emerald)' }}>
-            EIS ACTIVE
-          </div>
-          <div className="cn-stat-subtext">
-            <span>Code 01 default • Non-overcredit lock</span>
+            <span>Not sent to BIR yet (EIS transmission starts after the PTI)</span>
           </div>
         </div>
       </div>
@@ -511,8 +765,8 @@ export default function CreditNotesPage() {
               onClick={() => setActiveTab('issued')}
             >
               <FileCheck2 size={16} />
-              <span>Issued Credit Notes Ledger</span>
-              <span className="cn-tab-badge cn-tab-badge-neutral">{issuedLedger.length}</span>
+              <span>Issued Credit Notes</span>
+              <span className="cn-tab-badge cn-tab-badge-neutral">{issuedCount}</span>
             </button>
 
             <button
@@ -524,54 +778,70 @@ export default function CreditNotesPage() {
             </button>
           </div>
 
-          <div className="cn-controls-group">
-            <div className="cn-search-box">
-              <Search size={15} />
-              <input
-                type="text"
-                placeholder="Search orders, invoices, buyers..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  style={{ color: 'var(--text-subtle)' }}
-                  aria-label="Clear search"
-                >
-                  <X size={14} />
-                </button>
-              )}
-            </div>
+          {activeTab !== 'balance' && (
+            <div className="cn-controls-group">
+              <div className="cn-search-box">
+                <Search size={15} />
+                <input
+                  type="text"
+                  placeholder="Search invoice, credit note, order..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                {searchQuery && (
+                  <button onClick={() => setSearchQuery('')} style={{ color: 'var(--text-subtle)' }} aria-label="Clear search">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
 
-            <select
-              className="cn-form-select"
-              style={{ width: 'auto', padding: '7px 12px' }}
-              value={platformFilter}
-              onChange={(e) => setPlatformFilter(e.target.value)}
-            >
-              <option value="All">All Platforms</option>
-              <option value="Shopee">Shopee</option>
-              <option value="Lazada">Lazada</option>
-              <option value="TikTok Shop">TikTok Shop</option>
-            </select>
-          </div>
+              <select
+                className="cn-form-select"
+                style={{ width: 'auto', padding: '7px 12px' }}
+                value={platformFilter}
+                onChange={(e) => {
+                  setLoadingIssued(true);
+                  setPlatformFilter(e.target.value);
+                }}
+              >
+                {PLATFORM_OPTIONS.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         {/* TAB 1: CANDIDATES WORK LIST */}
         {activeTab === 'candidates' && (
           <div className="cn-table-wrapper">
-            {filteredCandidates.length === 0 ? (
+            {candidatesError ? (
+              <div className="cn-empty-state">
+                <div className="cn-empty-icon">
+                  <AlertTriangle size={26} style={{ color: 'var(--accent-rose)' }} />
+                </div>
+                <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-main)' }}>Work list not loaded</div>
+                <p style={{ maxWidth: '480px', fontSize: '0.85rem' }}>{candidatesError}</p>
+              </div>
+            ) : loadingCandidates && candidates.length === 0 ? (
+              <div className="cn-empty-state">
+                <span className="spinner" />
+                <p style={{ fontSize: '0.85rem' }}>Loading the work list…</p>
+              </div>
+            ) : filteredCandidates.length === 0 ? (
               <div className="cn-empty-state">
                 <div className="cn-empty-icon">
                   <CheckCircle2 size={26} style={{ color: 'var(--accent-emerald)' }} />
                 </div>
                 <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-main)' }}>
-                  Work list is clear
+                  {candidates.length === 0 ? 'Work list is clear' : 'Nothing matches the search'}
                 </div>
                 <p style={{ maxWidth: '420px', fontSize: '0.85rem' }}>
-                  No candidate orders currently require credit notes. When marketplaces report cancellations or returns,
-                  they will automatically populate here.
+                  {candidates.length === 0
+                    ? 'No invoice needs a credit note right now. Invoices of orders that are cancelled, returned or refunded on the platform appear here.'
+                    : 'Clear the search or choose another platform.'}
                 </p>
               </div>
             ) : (
@@ -579,57 +849,65 @@ export default function CreditNotesPage() {
                 <thead>
                   <tr>
                     <th>Order & Store</th>
-                    <th>Target Invoice</th>
-                    <th>Trigger / Reason</th>
-                    <th>Suggested Code</th>
-                    <th>Available Balance</th>
+                    <th>Invoice</th>
+                    <th>What happened</th>
+                    <th>Suggested</th>
+                    <th>Still Open</th>
                     <th style={{ textAlign: 'right' }}>Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredCandidates.map((cand) => (
-                    <tr key={cand.id}>
+                    <tr key={cand.invoice_id}>
                       <td>
+                        <div style={{ fontWeight: 600 }}>{cand.platform_order_id || '—'}</div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
-                          <PlatformBadge platform={cand.platform} />
-                          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{cand.storeName}</span>
+                          <PlatformBadge platform={cand.platform} hideStatus />
+                          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Store {cand.store_id ?? '—'}</span>
                         </div>
                       </td>
                       <td>
-                        <div style={{ fontWeight: 600, color: 'var(--primary)' }}>{cand.invoiceId}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Issued {cand.invoiceDate}</div>
+                        <div style={{ fontWeight: 600, color: 'var(--primary)' }}>{cand.invoice_number}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          Issued {formatDateTime(cand.invoice_issued_at)}
+                        </div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)', marginTop: '2px' }}>
-                          Customer: {cand.customer}
+                          Total {formatMoney(cand.invoice_total)}
+                          {toCents(cand.credited_amount) > 0 && <> &middot; credited {formatMoney(cand.credited_amount)}</>}
                         </div>
                       </td>
                       <td>
-                        <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{cand.trigger}</div>
-                        <div className="cn-reason-desc">Platform status change detected after packing scan</div>
+                        <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{cand.explanation || '—'}</div>
+                        <div className="cn-reason-desc">
+                          Order status now: {cand.order_status_now || cand.order_status_standard_now || '—'}
+                          {cand.core_refund_amount !== null && cand.core_refund_amount !== undefined && (
+                            <> &middot; platform refund {formatMoney(cand.core_refund_amount)}</>
+                          )}
+                        </div>
                       </td>
                       <td>
-                        <span className="cn-reason-code-badge">
-                          Code {cand.suggestedCode}
-                        </span>
+                        <span className="cn-reason-code-badge">Code {cand.suggested_correction_code || '—'}</span>
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '3px' }}>
-                          {REASON_CODES.find((r) => r.code === cand.suggestedCode)?.label.split('(')[0]}
+                          {SUGGESTED_ACTIONS[cand.suggested_action] || cand.suggested_action || ''}
                         </div>
                       </td>
                       <td>
-                        <div className="cn-amount-main">₱{parseFloat(cand.creditableBalance).toFixed(2)}</div>
-                        <span className="badge badge-emerald" style={{ marginTop: '3px' }}>
-                          Open to Credit
-                        </span>
+                        <div className="cn-amount-main">{formatMoney(cand.open_amount)}</div>
                       </td>
                       <td style={{ textAlign: 'right' }}>
-                        <button
-                          type="button"
-                          className="btn btn-primary"
-                          style={{ padding: '5px 10px', fontSize: '0.74rem', borderRadius: 4 }}
-                          onClick={() => handleOpenIssueCandidate(cand)}
-                        >
-                          <span>Review & Issue</span>
-                          <ArrowRight size={13} />
-                        </button>
+                        {canIssue ? (
+                          <button
+                            type="button"
+                            className="btn btn-primary"
+                            style={{ padding: '5px 10px', fontSize: '0.74rem', borderRadius: 4 }}
+                            onClick={() => handleOpenIssueCandidate(cand)}
+                          >
+                            <span>Review & Issue</span>
+                            <ArrowRight size={13} />
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>Accounting or IT issues it</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -639,19 +917,34 @@ export default function CreditNotesPage() {
           </div>
         )}
 
-        {/* TAB 2: ISSUED CREDIT NOTES LEDGER */}
+        {/* TAB 2: ISSUED CREDIT NOTES (server register) */}
         {activeTab === 'issued' && (
           <div className="cn-table-wrapper">
-            {filteredIssued.length === 0 ? (
+            {issuedError ? (
+              <div className="cn-empty-state">
+                <div className="cn-empty-icon">
+                  <AlertTriangle size={26} style={{ color: 'var(--accent-rose)' }} />
+                </div>
+                <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-main)' }}>Issued credit notes not loaded</div>
+                <p style={{ maxWidth: '480px', fontSize: '0.85rem' }}>{issuedError}</p>
+              </div>
+            ) : loadingIssued && issued.length === 0 ? (
+              <div className="cn-empty-state">
+                <span className="spinner" />
+                <p style={{ fontSize: '0.85rem' }}>Loading issued credit notes…</p>
+              </div>
+            ) : filteredIssued.length === 0 ? (
               <div className="cn-empty-state">
                 <div className="cn-empty-icon">
                   <FileMinus size={26} />
                 </div>
                 <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-main)' }}>
-                  No credit notes issued
+                  {issued.length === 0 ? 'No credit notes issued' : 'Nothing matches the search'}
                 </div>
                 <p style={{ maxWidth: '420px', fontSize: '0.85rem' }}>
-                  No credit note documents have been logged yet. Use the work list or manual button to issue one.
+                  {issued.length === 0
+                    ? 'No credit note has been issued yet.'
+                    : 'The search looks at the credit notes loaded below. Clear it or load more.'}
                 </p>
               </div>
             ) : (
@@ -661,7 +954,7 @@ export default function CreditNotesPage() {
                     <th>Credit Note #</th>
                     <th>Original Invoice</th>
                     <th>Order & Store</th>
-                    <th>Reason Code & Notes</th>
+                    <th>Code & Reason</th>
                     <th>Credited Amount</th>
                     <th>Status</th>
                     <th style={{ textAlign: 'right' }}>Actions</th>
@@ -671,62 +964,91 @@ export default function CreditNotesPage() {
                   {filteredIssued.map((item) => (
                     <tr key={item.id}>
                       <td>
-                        <div style={{ fontWeight: 700, color: 'var(--accent-rose)' }}>{item.id}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)' }}>{item.date}</div>
-                        {item.author && (
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>by {item.author}</div>
-                        )}
+                        <div style={{ fontWeight: 700, color: 'var(--accent-rose)' }}>{item.document_number}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)' }}>{formatDateTime(item.issued_at)}</div>
                       </td>
                       <td>
-                        <div style={{ fontWeight: 600, color: 'var(--primary)' }}>{item.invoiceId}</div>
-                        {item.replacedBy && (
-                          <div style={{ fontSize: '0.72rem', color: 'var(--accent-emerald)', marginTop: '2px' }}>
-                            ↳ Replaced by: <strong>{item.replacedBy}</strong>
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        <div style={{ fontWeight: 600 }}>{item.orderId}</div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
-                          <PlatformBadge platform={item.platform} printed />
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{item.storeName}</span>
+                        <div style={{ fontWeight: 600, color: 'var(--primary)' }}>
+                          {item.original_document_number || (item.original_document_id ? `#${item.original_document_id}` : '—')}
                         </div>
                       </td>
                       <td>
-                        <span className="cn-reason-code-badge">
-                          Code {item.reasonCode}
-                        </span>
-                        <div className="cn-reason-desc">{item.reason}</div>
+                        <div style={{ fontWeight: 600 }}>{item.platform_order_id || '—'}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
+                          <PlatformBadge platform={item.platform} hideStatus />
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{item.store_name || `Store ${item.store_id}`}</span>
+                        </div>
                       </td>
                       <td>
-                        <div className="cn-amount-credited">-₱{parseFloat(item.amount).toFixed(2)}</div>
-                        <span style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>BIR VAT deductible</span>
+                        <span className="cn-reason-code-badge">Code {item.correction_code || '—'}</span>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '3px' }}>
+                          {codeLabel(item.correction_code)}
+                        </div>
+                        {item.correction_reason && <div className="cn-reason-desc">{item.correction_reason}</div>}
+                      </td>
+                      <td>
+                        <div className="cn-amount-credited">-{formatMoney(item.total_amount)}</div>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>
+                          VAT {formatMoney(item.vat_amount)}
+                        </span>
                       </td>
                       <td>
                         <span className="badge badge-emerald">
                           <CheckCircle2 size={12} />
-                          {item.status}
+                          Issued
                         </span>
                         <div style={{ fontSize: '0.7rem', color: 'var(--text-subtle)', marginTop: '3px' }}>
-                          Immutable Write-Once
+                          Not sent to BIR yet
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-subtle)' }}>
+                          {item.print_count > 0 ? `Printed ${item.print_count}×` : 'Not printed'}
                         </div>
                       </td>
                       <td style={{ textAlign: 'right' }}>
-                        <button
-                          type="button"
-                          className="btn btn-info"
-                          style={{ padding: '5px 10px', fontSize: '0.74rem', borderRadius: 4 }}
-                          onClick={() => handleViewEisJson(item)}
-                          title="View Credit Note Details & BIR EIS JSON"
-                        >
-                          <Eye size={13} />
-                          <span>EIS JSON</span>
-                        </button>
+                        {canViewEis && (
+                          <button
+                            type="button"
+                            className="btn btn-info"
+                            style={{ padding: '5px 10px', fontSize: '0.74rem', borderRadius: 4 }}
+                            onClick={() => handleViewEisJson(item)}
+                            title="Preview the BIR JSON for this credit note"
+                          >
+                            <Eye size={13} />
+                            <span>BIR JSON</span>
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            )}
+            {!issuedError && issued.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '10px 14px',
+                  fontSize: '0.78rem',
+                  color: 'var(--text-muted)'
+                }}
+              >
+                <span>
+                  Showing {issued.length} of {issuedCount} credit note(s)
+                </span>
+                {issuedNextOffset !== null && (
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    style={{ padding: '4px 10px', fontSize: '0.74rem', borderRadius: 4 }}
+                    onClick={handleLoadMoreIssued}
+                    disabled={loadingIssued}
+                  >
+                    {loadingIssued ? 'Loading…' : 'Load more'}
+                  </button>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -735,160 +1057,149 @@ export default function CreditNotesPage() {
         {activeTab === 'balance' && (
           <div style={{ padding: '24px' }}>
             <div style={{ maxWidth: '640px', marginBottom: '24px' }}>
-              <h2 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '6px' }}>
-                Inspect Invoice Creditable Balance
-              </h2>
+              <h2 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '6px' }}>What is still open on an invoice</h2>
               <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
-                Calls <code>GET /api/invoices/{'{id}'}/balance</code> to query the write-once ledger for open balances per line item.
-                This prevents duplicate credit notes or over-crediting.
+                Type an invoice number (or order id / waybill). Shows, per line, what was invoiced, what was already credited
+                and what can still be credited.
               </p>
 
-              <div style={{ display: 'flex', gap: '10px' }}>
+              <form
+                style={{ display: 'flex', gap: '10px' }}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleInspectBalance();
+                }}
+              >
                 <input
                   type="text"
                   className="cn-form-input"
                   style={{ flex: 1 }}
-                  placeholder="e.g. INV-2026-0428"
-                  value={balanceInputInvoice}
-                  onChange={(e) => setBalanceInputInvoice(e.target.value)}
+                  placeholder="Invoice number, order id or waybill"
+                  value={balanceInput}
+                  onChange={(e) => setBalanceInput(e.target.value)}
                 />
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  style={{ borderRadius: 4 }}
-                  onClick={handleInspectBalance}
-                  disabled={balanceLoading}
-                >
+                <button type="submit" className="btn btn-primary" style={{ borderRadius: 4 }} disabled={balanceLoading || !balanceInput.trim()}>
                   {balanceLoading ? <span className="spinner" /> : <Search size={15} />}
                   <span>Check Balance</span>
                 </button>
-              </div>
+              </form>
+              {balanceError && (
+                <p style={{ marginTop: '10px', fontSize: '0.82rem', color: 'var(--accent-rose)' }}>{balanceError}</p>
+              )}
             </div>
 
-            {balanceResult && (
+            {balanceInvoice && balanceRows.length > 0 && (
               <div
                 style={{
                   background: 'var(--bg-app)',
                   border: '1px solid var(--border-light)',
                   borderRadius: 'var(--radius-lg)',
                   padding: '20px',
-                  maxWidth: '720px'
+                  maxWidth: '760px'
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                   <div>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Target Invoice</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Invoice</span>
                     <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--primary)' }}>
-                      {balanceResult.invoice_id}
+                      {balanceInvoice.document_number || `#${balanceInvoice.id}`}
                     </div>
+                    {balanceInvoice.replaced_by_number && (
+                      <div style={{ fontSize: '0.75rem', color: 'var(--accent-rose)' }}>
+                        Replaced by {balanceInvoice.replaced_by_number}
+                      </div>
+                    )}
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Remaining Creditable</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Still open</span>
                     <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--accent-emerald)' }}>
-                      ₱{parseFloat(balanceResult.open_balance || '0').toFixed(2)}
+                      {centsToMoney(balanceOpenCents)}
                     </div>
                   </div>
                 </div>
 
                 <div className="cn-lines-card">
                   <div style={{ padding: '10px 14px', background: 'var(--border-light)', fontSize: '0.75rem', fontWeight: 700 }}>
-                    LINE ITEM AUDIT BREAKDOWN
+                    PER LINE
                   </div>
-                  {(balanceResult.lines || []).map((l, idx) => (
-                    <div key={idx} className="cn-line-row">
+                  {balanceRows.map((l) => (
+                    <div key={l.line_no} className="cn-line-row">
                       <div>
-                        <div style={{ fontWeight: 600 }}>{l.description || 'Line Item'}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>ID: {l.line_id}</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Original Amount</div>
-                        <div style={{ fontWeight: 600 }}>₱{parseFloat(l.original_amount || '0').toFixed(2)}</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Available to Credit</div>
-                        <div style={{ fontWeight: 700, color: 'var(--accent-emerald)' }}>
-                          ₱{parseFloat(l.remaining || l.open_balance || '0').toFixed(2)}
+                        <div style={{ fontWeight: 600 }}>{l.description || 'Line'}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          Line {l.line_no}
+                          {l.sku ? ` · ${l.sku}` : ''} · {formatQty(l.quantity)} × {formatMoney(l.unit_price)}
                         </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Invoiced</div>
+                        <div style={{ fontWeight: 600 }}>{formatMoney(l.line_total)}</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                          Credited {formatMoney(l.credited_amount)}
+                          {toCents(l.credited_quantity) > 0 ? ` (${formatQty(l.credited_quantity)} unit(s))` : ''}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Still open</div>
+                        <div style={{ fontWeight: 700, color: 'var(--accent-emerald)' }}>{formatMoney(l.remaining_amount)}</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{formatQty(l.remaining_quantity)} unit(s)</div>
                       </div>
                     </div>
                   ))}
                 </div>
 
-                <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    style={{ borderRadius: 4 }}
-                    onClick={() => {
-                      setModalInvoiceId(balanceResult.invoice_id);
-                      setModalReasonCode('01');
-                      setModalReasonText('');
-                      setModalLines(
-                        (balanceResult.lines || []).map((l) => ({
-                          lineId: l.line_id,
-                          name: l.description,
-                          creditable: parseFloat(l.remaining || l.open_balance || '0').toFixed(2),
-                          amountToCredit: parseFloat(l.remaining || l.open_balance || '0').toFixed(2)
-                        }))
-                      );
-                      setShowIssueModal(true);
-                    }}
-                  >
-                    <span>Issue Credit Note for this Invoice</span>
-                    <ArrowRight size={14} />
-                  </button>
-                </div>
+                {canIssue && balanceOpenCents > 0 && (
+                  <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
+                    <button type="button" className="btn btn-primary" style={{ borderRadius: 4 }} onClick={handleOpenIssueFromBalance}>
+                      <span>Issue Credit Note for this Invoice</span>
+                      <ArrowRight size={14} />
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
         )}
       </div>
 
-      {/* MODAL 1: ISSUE CREDIT NOTE - Right Side Modal like InvoicesPage */}
+      {/* MODAL 1: ISSUE CREDIT NOTE */}
       {showIssueModal && (
-        <div
-          className="order-drawer-backdrop no-print"
-          onClick={() => setShowIssueModal(false)}
-        >
-          <aside
-            className="order-right-modal"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="order-drawer-backdrop no-print" onClick={() => !isSubmitting && setShowIssueModal(false)}>
+          <aside className="order-right-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             {/* Header */}
             <div className="modal-header">
               <div>
-                <div style={{ marginBottom: '4px' }}>
-                  <PlatformBadge
-                    platform={selectedCandidate?.platform || 'Marketplace'}
-                    printed={Boolean(selectedCandidate)}
-                  />
-                </div>
+                {modalInvoice?.platform && (
+                  <div style={{ marginBottom: '4px' }}>
+                    <PlatformBadge platform={modalInvoice.platform} hideStatus />
+                  </div>
+                )}
                 <div className="modal-title-row">
-                  <span>Issue BIR EIS Credit Note</span>
-                  {modalInvoiceId && (
+                  <span>Issue Credit Note</span>
+                  {modalInvoice && (
                     <span className="order-id-badge num-target">
-                      #{modalInvoiceId}
+                      {modalInvoice.document_number || `#${modalInvoice.id}`}
                     </span>
                   )}
                 </div>
-                <p className="modal-subtitle">
-                  Order:{' '}
-                  <span className="num-target">
-                    {selectedCandidate?.orderId || 'Direct-Issue'}
-                  </span>{' '}
-                  &middot; Store:{' '}
-                  <span className="num-target">
-                    {selectedCandidate?.storeName || 'Ipolymer Solutions Corp.'}
-                  </span>
-                </p>
+                {modalInvoice?.platform_order_id && (
+                  <p className="modal-subtitle">
+                    Order: <span className="num-target">{modalInvoice.platform_order_id}</span>
+                    {modalInvoice.store_id !== undefined && modalInvoice.store_id !== null && (
+                      <>
+                        {' '}
+                        &middot; Store <span className="num-target">{modalInvoice.store_id}</span>
+                      </>
+                    )}
+                  </p>
+                )}
               </div>
               <button
                 type="button"
                 className="btn-close"
                 onClick={() => setShowIssueModal(false)}
-                aria-label="Close modal"
+                disabled={isSubmitting}
+                aria-label="Close"
               >
                 &times;
               </button>
@@ -896,115 +1207,168 @@ export default function CreditNotesPage() {
 
             <form
               onSubmit={handleSubmitCreditNote}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                flex: 1,
-                minHeight: 0,
-                overflow: 'hidden'
-              }}
+              style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}
             >
-              {/* Body */}
               <div className="modal-body" style={{ overflowY: 'auto', gap: '14px' }}>
-                {selectedCandidate && (
+                {selectedCandidate?.explanation && (
                   <div>
-                    <div className="section-title">Channel &amp; Buyer Information</div>
+                    <div className="section-title">Why this invoice is on the work list</div>
                     <div className="meta-box">
                       <div className="meta-col">
-                        <span className="meta-lbl">Store</span>
+                        <span className="meta-lbl">What happened</span>
+                        <span className="meta-val">{selectedCandidate.explanation}</span>
+                      </div>
+                      <div className="meta-col">
+                        <span className="meta-lbl">Suggested</span>
                         <span className="meta-val">
-                          {selectedCandidate.platform} &middot; {selectedCandidate.storeName}
+                          {SUGGESTED_ACTIONS[selectedCandidate.suggested_action] || selectedCandidate.suggested_action}
                         </span>
                       </div>
                       <div className="meta-col">
-                        <span className="meta-lbl">Buyer</span>
-                        <span className="meta-val">{selectedCandidate.customer}</span>
-                      </div>
-                      <div className="meta-col">
-                        <span className="meta-lbl">Order ID</span>
-                        <span className="meta-val highlight num-target">
-                          {selectedCandidate.orderId}
-                        </span>
-                      </div>
-                      <div className="meta-col">
-                        <span className="meta-lbl">Waybill Tracking</span>
-                        <span className="num-target meta-val">
-                          {selectedCandidate.tracking || '—'}
-                        </span>
+                        <span className="meta-lbl">Still open</span>
+                        <span className="meta-val num-target">{formatMoney(selectedCandidate.open_amount)}</span>
                       </div>
                     </div>
                   </div>
                 )}
 
-                {/* Invoice ID input */}
-                <div className="cn-form-group">
-                  <label className="cn-form-label">
-                    <span>Target Invoice Number</span>
-                    <span className="cn-form-hint">Must match live issued ledger invoice</span>
-                  </label>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. INV-2026-0428"
-                      className="cn-form-input"
-                      value={modalInvoiceId}
-                      onChange={(e) => setModalInvoiceId(e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      className="btn btn-outline"
-                      style={{ borderRadius: 4, whiteSpace: 'nowrap' }}
-                      onClick={handleLookupInvoiceBalance}
-                      disabled={fetchingBalance}
-                    >
-                      {fetchingBalance ? <span className="spinner" /> : <RefreshCw size={14} />}
-                      <span>Fetch Balance</span>
-                    </button>
+                {/* Invoice (typed only when not opened from the work list or the balance check) */}
+                {!selectedCandidate && (
+                  <div className="cn-form-group">
+                    <label className="cn-form-label">
+                      <span>Invoice</span>
+                      <span className="cn-form-hint">Invoice number, order id or waybill</span>
+                    </label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input
+                        type="text"
+                        placeholder="e.g. SI-00000001"
+                        className="cn-form-input"
+                        value={modalInvoiceInput}
+                        onChange={(e) => setModalInvoiceInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleModalFindInvoice();
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-outline"
+                        style={{ borderRadius: 4, whiteSpace: 'nowrap' }}
+                        onClick={handleModalFindInvoice}
+                        disabled={fetchingLines || !modalInvoiceInput.trim()}
+                      >
+                        {fetchingLines ? <span className="spinner" /> : <Search size={14} />}
+                        <span>Find Invoice</span>
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
 
-                {/* Reason Code */}
+                {/* Correction code */}
                 <div className="cn-form-group">
                   <label className="cn-form-label">
-                    <span>Official Reason Code (BIR EIS Standard)</span>
+                    <span>Correction Code</span>
+                    {selectedCandidate?.suggested_correction_code && (
+                      <span className="cn-form-hint">Suggested: {selectedCandidate.suggested_correction_code}</span>
+                    )}
                   </label>
-                  <select
-                    className="cn-form-select"
-                    value={modalReasonCode}
-                    onChange={(e) => setModalReasonCode(e.target.value)}
-                  >
-                    {REASON_CODES.map((r) => (
+                  <select className="cn-form-select" value={modalCode} onChange={(e) => setModalCode(e.target.value)}>
+                    <option value="">Choose a code…</option>
+                    {CORRECTION_CODES.map((r) => (
                       <option key={r.code} value={r.code}>
-                        Code {r.code} — {r.label}
+                        {r.code} — {r.label}
                       </option>
                     ))}
                   </select>
                 </div>
 
-                {/* Audit Explanation */}
+                {/* Reference (source_ref) */}
                 <div className="cn-form-group">
                   <label className="cn-form-label">
-                    <span>Audit Explanation &amp; Notes</span>
-                    <span className="cn-form-hint">Mandatory for accounting compliance</span>
+                    <span>Reference</span>
+                    <span className="cn-form-hint">Names this adjustment, e.g. cancel, return:123, refund:456</span>
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={100}
+                    className="cn-form-input"
+                    placeholder="e.g. cancel"
+                    value={modalSourceRef}
+                    onChange={(e) => setModalSourceRef(e.target.value)}
+                  />
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>
+                    The same reference on the same order always gives back the credit note already issued for it. Use a new
+                    reference for a new adjustment.
+                  </span>
+                </div>
+
+                {/* Reason */}
+                <div className="cn-form-group">
+                  <label className="cn-form-label">
+                    <span>Reason</span>
+                    <span className="cn-form-hint">Required · {modalReason.length}/500</span>
                   </label>
                   <textarea
                     rows={3}
-                    required
+                    maxLength={500}
                     className="cn-form-textarea"
-                    placeholder="Provide specific details (e.g. Buyer company TIN update request; or package returned by courier with tracking receipt)"
-                    value={modalReasonText}
-                    onChange={(e) => setModalReasonText(e.target.value)}
+                    placeholder="e.g. Buyer cancelled the order on Shopee after packing"
+                    value={modalReason}
+                    onChange={(e) => setModalReason(e.target.value)}
                   />
                 </div>
 
-                {/* Line Items Breakdown */}
-                <div>
-                  <div className="section-title">
-                    Creditable Line Items ({modalLines.length})
-                  </div>
+                {/* What to credit */}
+                <div className="cn-form-group">
+                  <label className="cn-form-label">
+                    <span>What to credit</span>
+                  </label>
+                  <select className="cn-form-select" value={modalMode} onChange={(e) => setModalMode(e.target.value)}>
+                    {CREDIT_MODES.map((m) => (
+                      <option key={m.value} value={m.value}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                  {modalLines.length === 0 ? (
+                {/* Lines */}
+                <div>
+                  <div className="section-title">Invoice Lines ({modalLines.length})</div>
+
+                  {fetchingLines ? (
+                    <div style={{ padding: '12px', fontSize: '0.78rem', color: '#64748b' }}>
+                      <span className="spinner" /> Loading what is still open…
+                    </div>
+                  ) : modalLinesError ? (
+                    <div
+                      style={{
+                        padding: '12px',
+                        background: '#fff1f2',
+                        border: '1px solid #fecdd3',
+                        borderRadius: '8px',
+                        fontSize: '0.78rem',
+                        color: '#be123c'
+                      }}
+                    >
+                      {modalLinesError}
+                      {modalInvoice?.id && (
+                        <div style={{ marginTop: '6px' }}>
+                          <button
+                            type="button"
+                            className="btn btn-outline"
+                            style={{ padding: '3px 8px', fontSize: '0.7rem', borderRadius: 4 }}
+                            onClick={() => loadModalLines(modalInvoice.id, selectedCandidate?.suggested_lines)}
+                          >
+                            Try again
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : modalLines.length === 0 ? (
                     <div
                       style={{
                         padding: '12px',
@@ -1015,16 +1379,14 @@ export default function CreditNotesPage() {
                         color: '#64748b'
                       }}
                     >
-                      No lines loaded yet. Click <strong>"Fetch Balance"</strong> above or enter invoice details.
+                      Find the invoice first to see its lines.
                     </div>
                   ) : (
                     modalLines.map((line, idx) => (
-                      <div
-                        key={line.lineId || idx}
-                        className="item-card"
-                        style={idx > 0 ? { marginTop: '8px' } : undefined}
-                      >
-                        <div className="item-name">{line.name}</div>
+                      <div key={line.line_no} className="item-card" style={idx > 0 ? { marginTop: '8px' } : undefined}>
+                        <div className="item-name">
+                          {line.line_no}. {line.description || 'Line'}
+                        </div>
                         <div
                           style={{
                             display: 'flex',
@@ -1035,72 +1397,101 @@ export default function CreditNotesPage() {
                           }}
                         >
                           <div className="sku-pill">
-                            Open Balance: <span className="num-target">₱{line.creditable}</span>
+                            Still open: <span className="num-target">{formatQty(line.remaining_quantity)} unit(s)</span> ·{' '}
+                            <span className="num-target">{formatMoney(line.remaining_amount)}</span>
                           </div>
-                          <button
-                            type="button"
-                            className="btn btn-outline"
-                            style={{ padding: '3px 8px', fontSize: '0.7rem', borderRadius: 4 }}
-                            onClick={() => handleLineCreditFull(idx)}
+                          {modalMode !== 'all' && (
+                            <button
+                              type="button"
+                              className="btn btn-outline"
+                              style={{ padding: '3px 8px', fontSize: '0.7rem', borderRadius: 4 }}
+                              onClick={() => fillLineRemaining(idx)}
+                            >
+                              All open
+                            </button>
+                          )}
+                        </div>
+                        {modalMode !== 'all' && (
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '8px',
+                              marginTop: '6px'
+                            }}
                           >
-                            Credit Full
-                          </button>
-                        </div>
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: '8px',
-                            marginTop: '6px'
-                          }}
-                        >
-                          <span style={{ fontSize: '0.74rem', fontWeight: 600, color: '#64748b' }}>
-                            Amount to Credit (PHP)
-                          </span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', width: '140px' }}>
-                            <span style={{ fontSize: '0.82rem', fontWeight: 700 }}>₱</span>
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              max={line.creditable}
-                              className="cn-form-input num-target"
-                              style={{ padding: '5px 8px', fontSize: '0.82rem', textAlign: 'right' }}
-                              value={line.amountToCredit}
-                              onChange={(e) => handleLineAmountChange(idx, e.target.value)}
-                            />
+                            <span style={{ fontSize: '0.74rem', fontWeight: 600, color: '#64748b' }}>
+                              {modalMode === 'quantity' ? 'Units returned' : 'Amount refunded (PHP)'}
+                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', width: '140px' }}>
+                              {modalMode === 'amount' && <span style={{ fontSize: '0.82rem', fontWeight: 700 }}>₱</span>}
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="0"
+                                className="cn-form-input num-target"
+                                style={{ padding: '5px 8px', fontSize: '0.82rem', textAlign: 'right' }}
+                                value={modalMode === 'quantity' ? line.qty : line.amount}
+                                onChange={(e) => updateLine(idx, modalMode === 'quantity' ? 'qty' : 'amount', e.target.value)}
+                              />
+                            </div>
                           </div>
-                        </div>
+                        )}
                       </div>
                     ))
                   )}
                 </div>
 
-                {/* Financial Tax Breakdown */}
-                <div>
-                  <div className="section-title">Tax Valuation &amp; Deduction Summary</div>
-                  <div className="totals-box">
-                    <div className="totals-row">
-                      <span>VATable Sales Deduction</span>
-                      <span className="num-target">
-                        ₱{(parseFloat(totalCreditAmount || 0) / 1.12).toFixed(2)}
-                      </span>
-                    </div>
-                    <div className="totals-row">
-                      <span>12% VAT Deduction</span>
-                      <span className="num-target">
-                        ₱{(parseFloat(totalCreditAmount || 0) - parseFloat(totalCreditAmount || 0) / 1.12).toFixed(2)}
-                      </span>
-                    </div>
-                    <div className="totals-row grand-total">
-                      <span>Total Credit Note Deduction</span>
-                      <span className="total-amount-display num-target">
-                        -₱{parseFloat(totalCreditAmount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
-                      </span>
+                {/* Total */}
+                {modalLines.length > 0 && (
+                  <div>
+                    <div className="section-title">Credit Note Total</div>
+                    <div className="totals-box">
+                      <div className="totals-row grand-total">
+                        <span>
+                          {modalMode === 'all'
+                            ? 'Everything still open'
+                            : modalMode === 'amount'
+                              ? 'Amounts entered'
+                              : 'Returned units'}
+                        </span>
+                        <span className="total-amount-display num-target">
+                          {modalMode === 'all'
+                            ? `-${centsToMoney(openTotalCents)}`
+                            : modalMode === 'amount'
+                              ? `-${centsToMoney(enteredAmountCents)}`
+                              : 'worked out by the server'}
+                        </span>
+                      </div>
+                      <div className="totals-row">
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>
+                          The exact amounts and VAT are calculated by the database when the credit note is issued.
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
+
+                {modalSubmitError && (
+                  <div
+                    role="alert"
+                    style={{
+                      padding: '10px 12px',
+                      background: '#fff1f2',
+                      border: '1px solid #fecdd3',
+                      borderRadius: '8px',
+                      fontSize: '0.8rem',
+                      color: '#be123c',
+                      display: 'flex',
+                      gap: '8px',
+                      alignItems: 'flex-start'
+                    }}
+                  >
+                    <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: '1px' }} />
+                    <span>{modalSubmitError}</span>
+                  </div>
+                )}
               </div>
 
               {/* Sticky Footer */}
@@ -1110,6 +1501,7 @@ export default function CreditNotesPage() {
                   className="modal-btn modal-btn-secondary"
                   style={{ borderRadius: 4 }}
                   onClick={() => setShowIssueModal(false)}
+                  disabled={isSubmitting}
                 >
                   Cancel
                 </button>
@@ -1117,9 +1509,9 @@ export default function CreditNotesPage() {
                   type="submit"
                   className="modal-btn modal-btn-primary"
                   style={{ borderRadius: 4 }}
-                  disabled={isSubmitting || parseFloat(totalCreditAmount) <= 0}
+                  disabled={isSubmitting || fetchingLines || !modalInvoice || modalLines.length === 0}
                 >
-                  {isSubmitting ? 'Submitting...' : 'Issue Credit Note'}
+                  {isSubmitting ? 'Issuing…' : 'Issue Credit Note'}
                 </button>
               </div>
             </form>
@@ -1127,125 +1519,109 @@ export default function CreditNotesPage() {
         </div>
       )}
 
-      {/* MODAL 2: BIR EIS JSON PREVIEW - Right Side Modal like InvoicesPage */}
-      {previewDoc && (
-        <div
-          className="order-drawer-backdrop no-print"
-          onClick={() => setPreviewDoc(null)}
-        >
-          <aside
-            className="order-right-modal"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
+      {/* MODAL 2: BIR JSON PREVIEW (from the server; not sent to BIR) */}
+      {preview && (
+        <div className="order-drawer-backdrop no-print" onClick={() => setPreview(null)}>
+          <aside className="order-right-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div>
                 <div style={{ marginBottom: '4px' }}>
-                  <PlatformBadge
-                    platform={previewDoc.platform || 'Marketplace'}
-                    printed
-                  />
+                  <PlatformBadge platform={preview.doc.platform} hideStatus />
                 </div>
                 <div className="modal-title-row">
                   <span>Credit Note</span>
-                  <span className="order-id-badge num-target">#{previewDoc.id}</span>
+                  <span className="order-id-badge num-target">{preview.doc.document_number}</span>
                 </div>
                 <p className="modal-subtitle">
-                  Ref Invoice: <span className="num-target">{previewDoc.invoiceId || '—'}</span> &middot; Date:{' '}
-                  <span className="num-target">{previewDoc.date || '—'}</span>
+                  Original invoice: <span className="num-target">{preview.doc.original_document_number || '—'}</span> &middot;
+                  Issued <span className="num-target">{formatDateTime(preview.doc.issued_at)}</span>
                 </p>
               </div>
-              <button
-                type="button"
-                className="btn-close"
-                onClick={() => setPreviewDoc(null)}
-                aria-label="Close preview"
-              >
+              <button type="button" className="btn-close" onClick={() => setPreview(null)} aria-label="Close preview">
                 &times;
               </button>
             </div>
 
-            {/* Body */}
             <div className="modal-body" style={{ overflowY: 'auto' }}>
               <div>
-                <div className="section-title">Channel &amp; Ledger Information</div>
-                <div className="meta-box">
-                  <div className="meta-col">
-                    <span className="meta-lbl">Store</span>
-                    <span className="meta-val">
-                      {previewDoc.platform || 'Marketplace'} &middot; {previewDoc.storeName || 'Official Store'}
-                    </span>
-                  </div>
-                  <div className="meta-col">
-                    <span className="meta-lbl">Original Invoice</span>
-                    <span className="meta-val highlight num-target">{previewDoc.invoiceId || '—'}</span>
-                  </div>
-                  <div className="meta-col">
-                    <span className="meta-lbl">Order ID</span>
-                    <span className="meta-val num-target">{previewDoc.orderId || '—'}</span>
-                  </div>
-                  <div className="meta-col">
-                    <span className="meta-lbl">Reason Code</span>
-                    <span className="meta-val num-target">Code {previewDoc.reasonCode || '01'}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <div className="section-title">Tax Valuation &amp; Settlement</div>
+                <div className="section-title">Amounts</div>
                 <div className="totals-box">
                   <div className="totals-row">
-                    <span>VATable Sales Deduction</span>
-                    <span className="num-target">
-                      ₱{(parseFloat(previewDoc.amount || 0) / 1.12).toFixed(2)}
-                    </span>
+                    <span>VATable sales</span>
+                    <span className="num-target">{formatMoney(preview.doc.vatable_sales)}</span>
                   </div>
                   <div className="totals-row">
-                    <span>12% VAT Deduction</span>
-                    <span className="num-target">
-                      ₱{(parseFloat(previewDoc.amount || 0) - parseFloat(previewDoc.amount || 0) / 1.12).toFixed(2)}
-                    </span>
+                    <span>VAT</span>
+                    <span className="num-target">{formatMoney(preview.doc.vat_amount)}</span>
                   </div>
                   <div className="totals-row grand-total">
-                    <span>Total Credited Amount</span>
-                    <span className="total-amount-display num-target">
-                      -₱{parseFloat(previewDoc.amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
-                    </span>
+                    <span>Total credited</span>
+                    <span className="total-amount-display num-target">-{formatMoney(preview.doc.total_amount)}</span>
                   </div>
                 </div>
               </div>
 
               <div>
-                <div className="section-title">BIR EIS JSON Payload</div>
-                <pre
-                  style={{
-                    background: '#0b1220',
-                    color: '#86efac',
-                    padding: '12px',
-                    borderRadius: '8px',
-                    fontFamily: 'JetBrains Mono, monospace',
-                    fontSize: '0.74rem',
-                    lineHeight: 1.45,
-                    maxHeight: '280px',
-                    overflowY: 'auto',
-                    margin: 0
-                  }}
-                >
-                  {JSON.stringify(previewDoc.eisJson, null, 2)}
-                </pre>
+                <div className="section-title">BIR JSON Preview (not sent to BIR yet)</div>
+                {preview.loading ? (
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    <span className="spinner" /> Loading…
+                  </div>
+                ) : preview.error ? (
+                  <div style={{ fontSize: '0.8rem', color: 'var(--accent-rose)' }}>{preview.error}</div>
+                ) : preview.results.length === 0 ? (
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>The server returned no preview for this document.</div>
+                ) : (
+                  preview.results.map((row) => {
+                    // payload_json is the exact text BIR would receive: shown as is, never re-parsed
+                    // (JSON.parse would turn "840.00" into 840).
+                    const payload = row.payload_json ?? row.payload ?? null;
+                    const issues = Array.isArray(row.issues) ? row.issues : [];
+                    return (
+                      <div key={`${row.document_id}-${row.trans_class}`} style={{ marginBottom: '12px' }}>
+                        <div style={{ fontSize: '0.78rem', fontWeight: 600, marginBottom: '4px' }}>
+                          Tax class {row.trans_class || '—'}
+                        </div>
+                        {issues.length > 0 && (
+                          <div
+                            style={{
+                              padding: '8px 10px',
+                              background: '#fff1f2',
+                              border: '1px solid #fecdd3',
+                              borderRadius: '8px',
+                              fontSize: '0.76rem',
+                              color: '#be123c',
+                              marginBottom: '6px'
+                            }}
+                          >
+                            BIR would reject this as it is: {issues.join('; ')}
+                          </div>
+                        )}
+                        <pre
+                          style={{
+                            background: '#0b1220',
+                            color: '#86efac',
+                            padding: '12px',
+                            borderRadius: '8px',
+                            fontFamily: 'JetBrains Mono, monospace',
+                            fontSize: '0.74rem',
+                            lineHeight: 1.45,
+                            maxHeight: '280px',
+                            overflowY: 'auto',
+                            margin: 0
+                          }}
+                        >
+                          {typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2)}
+                        </pre>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
 
-            {/* Sticky Footer */}
             <div className="modal-footer">
-              <button
-                type="button"
-                className="modal-btn modal-btn-secondary"
-                style={{ borderRadius: 4 }}
-                onClick={() => setPreviewDoc(null)}
-              >
+              <button type="button" className="modal-btn modal-btn-secondary" style={{ borderRadius: 4 }} onClick={() => setPreview(null)}>
                 Close
               </button>
             </div>
