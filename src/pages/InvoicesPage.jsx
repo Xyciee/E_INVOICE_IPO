@@ -54,6 +54,7 @@ function getStatusBadge(status, holdReason = null) {
 
 function mergePrintedAndApiDocs(localPrinted, apiDocs) {
   const map = new Map();
+  const prependedLocal = [];
 
   // 1. Add all live API documents from /api/documents
   for (let i = 0; i < apiDocs.length; i++) {
@@ -83,7 +84,7 @@ function mergePrintedAndApiDocs(localPrinted, apiDocs) {
     });
   }
 
-  // 2. Enhance with local print history (thermal station reprints)
+  // 2. Merge & prepend local confirmed / printed records
   for (const item of localPrinted) {
     if (!item) continue;
     const matchKey = Array.from(map.keys()).find((k) => {
@@ -95,14 +96,17 @@ function mergePrintedAndApiDocs(localPrinted, apiDocs) {
           existing.documentNumber === item.documentNumber) ||
         (item.orderId &&
           item.orderId !== '—' &&
-          existing.orderId === item.orderId)
+          existing.orderId === item.orderId) ||
+        (item.tracking &&
+          item.tracking !== '—' &&
+          existing.tracking === item.tracking)
       );
     });
 
     if (matchKey) {
       const existing = map.get(matchKey);
       const mergedCount = Math.max(Number(item.printCount || 1), Number(existing.printCount || 1));
-      map.set(matchKey, {
+      const mergedEntry = {
         ...existing,
         ...item,
         lines: item.lines?.length ? item.lines : existing.lines,
@@ -116,11 +120,12 @@ function mergePrintedAndApiDocs(localPrinted, apiDocs) {
           existing.issuedAt ||
           '—',
         lastReprintReason: item.lastReprintReason || existing.lastReprintReason || null
-      });
-    } else if (apiDocs.length === 0) {
-      const key = String(item.id || item.documentNumber || item.orderId || Math.random());
+      };
+      map.delete(matchKey);
+      prependedLocal.push(mergedEntry);
+    } else {
       const count = Number(item.printCount || 1);
-      map.set(key, {
+      prependedLocal.push({
         ...item,
         printCount: count,
         reprintCount: Math.max(count - 1, 0),
@@ -129,7 +134,7 @@ function mergePrintedAndApiDocs(localPrinted, apiDocs) {
     }
   }
 
-  return Array.from(map.values());
+  return [...prependedLocal, ...Array.from(map.values())];
 }
 
 export default function InvoicesPage() {
