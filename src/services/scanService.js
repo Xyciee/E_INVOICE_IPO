@@ -1135,21 +1135,104 @@ export function resolveUnresolvedScan(scanId, note) {
   });
 }
 
-/**
- * Print status comes only from the server's print log (GET /api/prints, print_count on documents and queue rows).
- * Older builds kept a second "printed" list in each browser; it marked orders printed even when the server refused
- * the print, and other PCs never saw it. These two stay so older callers still work: there are no local records.
- */
+const PRINTED_RECORDS_STORAGE_KEY = 'bir_printed_invoice_records_v1';
+
 export function getPrintedInvoiceRecords() {
-  return [];
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw =
+      localStorage.getItem(PRINTED_RECORDS_STORAGE_KEY) ||
+      sessionStorage.getItem(PRINTED_RECORDS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
-/** Tells open screens to reload from the server after a print. Saves nothing in the browser. */
-export function savePrintedInvoiceRecord() {
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('bir-printed-invoices-updated'));
+export function savePrintedInvoiceRecord(
+  record,
+  {
+    tracking = '',
+    isReprint = false,
+    reprintReason = null,
+    stationCode = '',
+    confirmedOnly = false
+  } = {}
+) {
+  if (!record || typeof window === 'undefined') return getPrintedInvoiceRecords();
+
+  const existing = getPrintedInvoiceRecords();
+  const normalized =
+    record.documentNumber && record.totalAmount
+      ? record
+      : normalizeDocumentRecord(record) || record;
+
+  const nowStr = new Date().toLocaleString('en-PH', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  const ordId = String(normalized.orderId || record.order_id || '').trim();
+  const docNum = String(
+    normalized.documentNumber && normalized.documentNumber !== '—'
+      ? normalized.documentNumber
+      : `EINV-${ordId && ordId !== '—' ? ordId : tracking || Date.now()}`
+  ).trim();
+  const trackCode = String(
+    tracking || normalized.tracking || record.tracking_number || '—'
+  ).trim();
+
+  const matchIdx = existing.findIndex((item) => {
+    if (!item) return false;
+    if (normalized.id && item.id && String(item.id) === String(normalized.id)) return true;
+    if (docNum && docNum !== '—' && item.documentNumber === docNum) return true;
+    if (ordId && ordId !== '—' && item.orderId === ordId) return true;
+    if (trackCode && trackCode !== '—' && item.tracking === trackCode) return true;
+    return false;
+  });
+
+  const prev = matchIdx >= 0 ? existing[matchIdx] : null;
+  const prevCount = Number(prev?.printCount || 0);
+  const nextCount = confirmedOnly ? Math.max(prevCount, 1) : prevCount + 1;
+
+  const entry = {
+    ...(prev || {}),
+    ...normalized,
+    documentNumber: docNum,
+    orderId: ordId || prev?.orderId || '—',
+    tracking: trackCode !== '—' ? trackCode : prev?.tracking || '—',
+    status: confirmedOnly && prevCount === 0 ? 'CONFIRMED' : normalized.status || 'ISSUED',
+    issuedAt:
+      normalized.issuedAt && normalized.issuedAt !== '—'
+        ? normalized.issuedAt
+        : prev?.issuedAt || nowStr,
+    lastPrintedAt: nowStr,
+    printCount: nextCount,
+    reprintCount: Math.max(nextCount - 1, 0),
+    isReprint: Boolean(isReprint || nextCount > 1),
+    lastReprintReason: reprintReason || prev?.lastReprintReason || null,
+    stationCode: stationCode || prev?.stationCode || ''
+  };
+
+  const updated =
+    matchIdx >= 0
+      ? [entry, ...existing.filter((_, idx) => idx !== matchIdx)]
+      : [entry, ...existing].slice(0, 500);
+
+  try {
+    localStorage.setItem(PRINTED_RECORDS_STORAGE_KEY, JSON.stringify(updated));
+  } catch {
+    // ignore storage quota errors
   }
-  return [];
+
+  window.dispatchEvent(new CustomEvent('bir-printed-invoices-updated'));
+  return updated;
 }
 
 export function isOrderAlreadyPrinted(order, printedRecords = []) {
@@ -1293,11 +1376,16 @@ export async function fetchActiveUnprintedOrders(searchTerm = '') {
     errorMessage = 'The list is too long to show in full. Search or filter by platform.';
   }
 
+  const localPrinted = getPrintedInvoiceRecords();
+  const normalizedRows = rows
+    .map(normalizeQueueRow)
+    .filter((ord) => !isOrderAlreadyPrinted(ord, localPrinted));
+
   return {
     ok: !failed || rows.length > 0,
     status: first?.status || 0,
-    unprintedOrders: rows.map(normalizeQueueRow),
-    printedCount: Number(first?.data?.printed_count || 0),
+    unprintedOrders: normalizedRows,
+    printedCount: Math.max(Number(first?.data?.printed_count || 0), localPrinted.length),
     totals: first?.data?.totals || null,
     cached: false,
     errorMessage

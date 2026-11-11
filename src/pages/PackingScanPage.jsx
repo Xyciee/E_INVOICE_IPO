@@ -37,6 +37,7 @@ import {
   getPrintedInvoiceRecords
 } from '../services/scanService';
 import WaybillTicket from '../components/WaybillTicket';
+import PlatformBadge from '../components/PlatformBadge';
 import './pages.css';
 
 export default function PackingScanPage() {
@@ -77,6 +78,7 @@ export default function PackingScanPage() {
   });
   const [isRecentModalOpen, setIsRecentModalOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
+  const [isOrderDrawerOpen, setIsOrderDrawerOpen] = useState(false);
   const [recentPage, setRecentPage] = useState(1);
   const LOGS_PER_PAGE = 10;
 
@@ -194,6 +196,7 @@ export default function PackingScanPage() {
     setLookupData(null);
     setIssueData(null);
     setDocDetail(null);
+    setIsOrderDrawerOpen(false);
     setElapsedSec(0);
     setRetryCount(0);
   };
@@ -385,8 +388,77 @@ export default function PackingScanPage() {
     [getStationPayload, defaultReprintReason, appendLog, loadDocumentInfo]
   );
 
+  const confirmWithoutPrint = useCallback(
+    async (doc, isReprint, code, orderInfo) => {
+      const { stationId, stationCode } = getStationPayload();
+      const docId =
+        doc?.id ||
+        doc?.document_id ||
+        doc?.invoice_id ||
+        doc?.document_number ||
+        null;
+
+      if (docId) {
+        await logInvoicePrint(docId, {
+          reason: isReprint ? defaultReprintReason : null,
+          note: 'Confirmed at packing scan station (no print)',
+          stationId,
+          stationCode
+        });
+      }
+
+      const fullNormalized = await loadDocumentInfo(
+        doc?.id || doc?.document_id || null,
+        code,
+        orderInfo
+      );
+      const fullDoc = fullNormalized?.raw || doc || orderInfo;
+
+      const recordToSave =
+        fullNormalized ||
+        normalizeDocumentRecord({
+          document: fullDoc,
+          order: orderInfo,
+          tracking: code
+        });
+
+      if (recordToSave) {
+        const ensuredRecord = {
+          ...recordToSave,
+          documentNumber:
+            recordToSave.documentNumber && recordToSave.documentNumber !== '—'
+              ? recordToSave.documentNumber
+              : `EINV-${recordToSave.orderId && recordToSave.orderId !== '—' ? recordToSave.orderId : code}`
+        };
+        savePrintedInvoiceRecord(ensuredRecord, {
+          tracking: code,
+          isReprint,
+          reprintReason: isReprint ? defaultReprintReason : null,
+          stationCode,
+          confirmedOnly: true
+        });
+      }
+
+      appendLog({
+        tracking: code,
+        endpoint: 'POST /api/scan/issue',
+        status: 'CONFIRMED',
+        badge: 'badge-emerald',
+        detail: 'Order confirmed & moved to Invoices Tracker (No Print).'
+      });
+
+      setIsOrderDrawerOpen(false);
+      setScannerState('IDLE');
+      notify.success(
+        'Order Confirmed',
+        `Waybill ${code} confirmed and moved directly to Invoices Tracker.`
+      );
+    },
+    [getStationPayload, defaultReprintReason, appendLog, loadDocumentInfo, notify]
+  );
+
   const issueInvoice = useCallback(
-    async (code, orderInfo) => {
+    async (code, orderInfo, shouldPrint = true) => {
       setBusyStep('issuing');
       const { stationId, stationCode } = getStationPayload();
 
@@ -400,8 +472,8 @@ export default function PackingScanPage() {
       setIssueData(res);
 
       const outcome = res.classified?.outcome;
-      const inv = res.classified?.invoice;
-      const ord = res.classified?.order || orderInfo;
+      const inv = res.classified?.invoice || lookupData?.classified?.currentInvoice;
+      const ord = res.classified?.order || orderInfo || lookupData?.classified?.order;
       const fallbackQuery = ord?.order_id || ord?.id || code;
 
       if (outcome === 'ISSUED_NOW') {
@@ -412,7 +484,12 @@ export default function PackingScanPage() {
           badge: 'badge-primary',
           detail: inv?.document_number || inv?.invoice_number || `Doc #${inv?.id}`
         });
-        if (inv) await printInvoice(inv, false, code, ord);
+        if (shouldPrint) {
+          setIsOrderDrawerOpen(false);
+          if (inv) await printInvoice(inv, false, code, ord);
+        } else {
+          await confirmWithoutPrint(inv, false, code, ord);
+        }
       } else if (outcome === 'ALREADY_ISSUED') {
         appendLog({
           tracking: code,
@@ -421,9 +498,15 @@ export default function PackingScanPage() {
           badge: 'badge-emerald',
           detail: inv?.document_number || inv?.invoice_number || `Doc #${inv?.id}`
         });
-        if (inv) await printInvoice(inv, true, code, ord);
+        if (shouldPrint) {
+          setIsOrderDrawerOpen(false);
+          if (inv) await printInvoice(inv, true, code, ord);
+        } else {
+          await confirmWithoutPrint(inv, true, code, ord);
+        }
       } else if (outcome === 'DO_NOT_SHIP_RED' || outcome === 'DO_NOT_SHIP_AMBER') {
         setPhase(outcome);
+        setIsOrderDrawerOpen(false);
         appendLog({
           tracking: code,
           endpoint: 'POST /api/scan/issue',
@@ -434,6 +517,7 @@ export default function PackingScanPage() {
         setScannerState('IDLE');
       } else if (outcome === 'AMBIGUOUS_409') {
         setPhase('AMBIGUOUS_409');
+        setIsOrderDrawerOpen(false);
         appendLog({
           tracking: code,
           endpoint: 'POST /api/scan/issue',
@@ -451,13 +535,25 @@ export default function PackingScanPage() {
           detail: res.classified.reason
         });
         await loadDocumentInfo(inv?.id, fallbackQuery, ord);
+        if (shouldPrint) {
+          setIsOrderDrawerOpen(false);
+          await printInvoice(inv || ord, false, code, ord);
+        } else {
+          await confirmWithoutPrint(inv || ord, false, code, ord);
+        }
         setScannerState('IDLE');
       } else {
         await loadDocumentInfo(inv?.id, fallbackQuery, ord);
+        if (shouldPrint) {
+          setIsOrderDrawerOpen(false);
+          await printInvoice(inv || ord, false, code, ord);
+        } else {
+          await confirmWithoutPrint(inv || ord, false, code, ord);
+        }
         setScannerState('IDLE');
       }
     },
-    [getStationPayload, appendLog, printInvoice, loadDocumentInfo]
+    [getStationPayload, appendLog, printInvoice, confirmWithoutPrint, loadDocumentInfo, lookupData]
   );
 
   const handleGiveUp = useCallback(
@@ -579,6 +675,9 @@ export default function PackingScanPage() {
 
       if (state === 'ORDER_OK') {
         setPhase('ORDER_OK');
+        setScannerState('IDLE');
+        setIsScanOpen(false);
+        setIsOrderDrawerOpen(true);
         appendLog({
           tracking: code,
           endpoint: 'GET /api/scan/:tracking',
@@ -586,7 +685,9 @@ export default function PackingScanPage() {
           badge: 'badge-emerald',
           detail: res.classified.message
         });
-        await issueInvoice(code, res.classified.order);
+        const ord = res.classified?.order;
+        const currInv = res.classified?.currentInvoice;
+        await loadDocumentInfo(currInv?.id, ord?.order_id || ord?.id || code, ord);
         return;
       }
 
@@ -600,7 +701,7 @@ export default function PackingScanPage() {
         detail: res.classified?.message || 'Lookup failed'
       });
     },
-    [stopTimers, appendLog, handleGiveUp, issueInvoice, getStationPayload]
+    [stopTimers, appendLog, handleGiveUp, loadDocumentInfo, getStationPayload]
   );
 
   useEffect(() => {
@@ -750,7 +851,11 @@ export default function PackingScanPage() {
   const lastPrintedDoc = printedRecords[0] || null;
 
   const printedLogsCount = logs.filter(
-    (l) => l.status === 'PRINTED' || l.status === 'REPRINTED' || l.status === 'ISSUED'
+    (l) =>
+      l.status === 'PRINTED' ||
+      l.status === 'REPRINTED' ||
+      l.status === 'ISSUED' ||
+      l.status === 'CONFIRMED'
   ).length;
   const totalPrintedCount = Math.max(printedRecords.length, printedLogsCount);
 
@@ -1205,6 +1310,44 @@ export default function PackingScanPage() {
                     <div className="spinner" style={{ margin: '0 auto 10px' }} />
                     <div>
                       {busyStep === 'issuing' ? 'Issuing invoice...' : 'Preparing printout...'}
+                    </div>
+                  </div>
+                )}
+
+                {!busyStep && !issueOutcome && (
+                  <div>
+                    <div className="invoice-status-box issued-now" style={{ marginBottom: '14px' }}>
+                      <span className="badge badge-emerald">Ready for Confirmation</span>
+                      <div className="invoice-number-display" style={{ fontSize: '1.1rem', marginTop: '6px' }}>
+                        Order #{displayDoc?.orderId && displayDoc.orderId !== '—' ? displayDoc.orderId : activeOrder?.order_id || tracking}
+                      </div>
+                      <div className="page-subtitle" style={{ marginTop: '4px' }}>
+                        Waybill: {tracking} · Total: ₱{displayDoc?.totalAmount || '0.00'}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="btn btn-outline"
+                        onClick={() => issueInvoice(tracking, activeOrder, false)}
+                      >
+                        <Check size={16} /> Confirm
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={() => issueInvoice(tracking, activeOrder, true)}
+                      >
+                        <Printer size={16} /> Confirm &amp; Print
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-outline"
+                        onClick={() => setIsOrderDrawerOpen(true)}
+                      >
+                        View Order Info
+                      </button>
                     </div>
                   </div>
                 )}
@@ -1948,6 +2091,188 @@ export default function PackingScanPage() {
               Done Scanning (Esc)
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Scanned Order Details Right-Side Modal (Same UI as Orders Module) */}
+      {isOrderDrawerOpen && displayDoc && (
+        <div
+          className="order-drawer-backdrop no-print"
+          onClick={() => {
+            if (!busyStep) setIsOrderDrawerOpen(false);
+          }}
+        >
+          <aside
+            className="order-right-modal"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="modal-header">
+              <div>
+                <div style={{ marginBottom: '4px' }}>
+                  <PlatformBadge platform={displayDoc.platform || activeOrder?.platform || 'Marketplace'} />
+                </div>
+                <div className="modal-title-row">
+                  <span>Order</span>
+                  <span className="order-id-badge num-target">
+                    #{displayDoc.orderId !== '—' ? displayDoc.orderId : activeOrder?.order_id || tracking}
+                  </span>
+                </div>
+                <p className="modal-subtitle">
+                  Waybill: <span className="num-target">{tracking || displayDoc.tracking || '—'}</span> &middot; Date:{' '}
+                  <span className="num-target">
+                    {displayDoc.orderDate && displayDoc.orderDate !== '—'
+                      ? displayDoc.orderDate
+                      : displayDoc.issuedAt || '—'}
+                  </span>
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-close"
+                disabled={Boolean(busyStep)}
+                onClick={() => setIsOrderDrawerOpen(false)}
+                aria-label="Close"
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="modal-body">
+              {busyStep && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 600 }}>
+                  <div className="spinner" style={{ width: '16px', height: '16px' }} />
+                  <span>
+                    {busyStep === 'issuing'
+                      ? 'Confirming order & issuing BIR E-Invoice...'
+                      : 'Preparing thermal printout...'}
+                  </span>
+                </div>
+              )}
+
+              {/* Metadata */}
+              <div>
+                <div className="section-title">Channel &amp; Buyer Information</div>
+                <div className="meta-box">
+                  <div className="meta-col">
+                    <span className="meta-lbl">Store</span>
+                    <span className="meta-val">
+                      {displayDoc.platform || 'Marketplace'} &middot; {displayDoc.storeName || 'Official Store'}
+                    </span>
+                  </div>
+                  <div className="meta-col">
+                    <span className="meta-lbl">Buyer</span>
+                    <span className="meta-val">{displayDoc.buyerName || 'Marketplace Buyer'}</span>
+                  </div>
+                  <div className="meta-col">
+                    <span className="meta-lbl">Order ID</span>
+                    <span className="meta-val highlight num-target">
+                      {displayDoc.orderId !== '—' ? displayDoc.orderId : activeOrder?.order_id || '—'}
+                    </span>
+                  </div>
+                  <div className="meta-col">
+                    <span className="meta-lbl">Waybill Tracking</span>
+                    <span className="meta-val num-target">{tracking || displayDoc.tracking || '—'}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Item Card */}
+              <div>
+                <div className="section-title">
+                  Product Ordered by Customer ({displayLines.length})
+                </div>
+                {displayLines.map((line, i) => (
+                  <div
+                    key={line.id || i}
+                    className="item-card"
+                    style={i > 0 ? { marginTop: '8px' } : undefined}
+                  >
+                    <div className="item-name">{line.productName}</div>
+
+                    {line.sku && (
+                      <div>
+                        <div className="sku-pill">
+                          SKU: <span className="num-target">{line.sku}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    <table className="item-table">
+                      <thead>
+                        <tr>
+                          <th style={{ width: '15%' }}>Qty</th>
+                          <th>Unit Price</th>
+                          <th>12% VAT</th>
+                          <th>Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td className="num-target" style={{ fontWeight: 700 }}>
+                            {line.qty}
+                          </td>
+                          <td className="num-target">₱{line.unitPrice}</td>
+                          <td className="num-target">₱{line.vatAmount}</td>
+                          <td className="num-target" style={{ fontWeight: 700 }}>
+                            ₱{line.lineTotal}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+              </div>
+
+              {/* Financial Tax Breakdown */}
+              <div>
+                <div className="section-title">Tax Valuation &amp; Settlement</div>
+                <div className="totals-box">
+                  <div className="totals-row discount">
+                    <span>Discount / Voucher</span>
+                    <span className="num-target">-₱{displayDoc.discountAmount || '0.00'}</span>
+                  </div>
+                  <div className="totals-row">
+                    <span>VATable Sales (Net of VAT)</span>
+                    <span className="num-target">₱{displayDoc.vatableSales || '0.00'}</span>
+                  </div>
+                  <div className="totals-row">
+                    <span>12% VAT Amount</span>
+                    <span className="num-target">₱{displayDoc.vatAmount || '0.00'}</span>
+                  </div>
+                  <div className="totals-row grand-total">
+                    <span>Total Amount (VAT Inc.)</span>
+                    <span className="total-amount-display num-target">
+                      ₱{displayDoc.totalAmount || '0.00'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Sticky Footer with 2 Buttons: Confirm & Confirm and Print */}
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="modal-btn modal-btn-secondary"
+                disabled={Boolean(busyStep)}
+                onClick={() => issueInvoice(tracking, activeOrder, false)}
+              >
+                <Check size={15} /> Confirm
+              </button>
+              <button
+                type="button"
+                className="modal-btn modal-btn-primary"
+                disabled={Boolean(busyStep)}
+                onClick={() => issueInvoice(tracking, activeOrder, true)}
+              >
+                <Printer size={15} /> Confirm &amp; Print
+              </button>
+            </div>
+          </aside>
         </div>
       )}
 
