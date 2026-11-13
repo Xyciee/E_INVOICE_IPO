@@ -26,9 +26,26 @@ function termsText(invoiceDate, dueDate) {
 
 const hasAddress = (p) => Boolean(p && (p.street || p.street2 || p.city || p.zip));
 
-/** The address to print: the invoice's Invoice Address contact when it has one, else the buyer company's. */
-export function invoiceAddressOf(detail) {
-  return hasAddress(detail?.invoice_address) ? detail.invoice_address : detail?.buyer;
+export const ADDRESS_SOURCES = {
+  invoice: 'Invoice Address contact',
+  company: 'customer company',
+  delivery: 'Delivery Address contact',
+  delivery_name: 'name of the Delivery Address contact'
+};
+
+/**
+ * The Business Address to print; the first that has an address wins:
+ *   1. the Invoice Address contact, 2. the customer company, 3. the Delivery Address contact,
+ *   4. the Delivery Address contact's NAME (this Odoo types delivery addresses as the contact's name).
+ * Filling the customer's address in Odoo later takes over automatically. Returns {text, source}.
+ */
+export function businessAddress(detail) {
+  const candidates = [['invoice', detail?.invoice_address], ['company', detail?.buyer], ['delivery', detail?.delivery_address]];
+  for (const [source, contact] of candidates) {
+    if (hasAddress(contact)) return { text: addressOf(contact), source };
+  }
+  const name = (detail?.delivery_address?.name || '').trim();
+  return name ? { text: name, source: 'delivery_name' } : { text: '', source: null };
 }
 
 export function addressOf(buyer) {
@@ -81,14 +98,15 @@ export function buildOdooInvoice(detail) {
     state: move.state,
     number: move.name || `#${move.odoo_id}`,
     date: longDate(move.invoice_date),
-    poNo: move.ref || '',
+    // P.O Remarks (custom Odoo field) holds the customer's PO number; Odoo's Customer Reference as a fallback
+    poNo: move.po_remarks || move.ref || '',
     refNo: move.invoice_origin || '',
     terms: termsText(move.invoice_date, move.invoice_date_due),
     currency: move.currency_code && move.currency_code !== 'PHP' ? move.currency_code : '',
     buyer: {
       name: detail?.buyer?.name || move.partner_name || '',
       tin: detail?.buyer?.vat || '',
-      address: addressOf(invoiceAddressOf(detail))
+      address: businessAddress(detail).text
     },
     items,
     totals: {
