@@ -11,6 +11,8 @@ export const odooApi = {
   syncRuns: () => api.get('/api/odoo/sync-runs'),
   // choice: {mode: 'changes' | 'all' | 'custom', invoice_from?, invoice_to?, numbers?}
   syncNow: (choice = { mode: 'changes' }) => api.post('/api/odoo/sync', choice),
+  // reads Odoo for a custom selection and says what is new / changed / up to date; stores nothing
+  syncPreview: (selection) => api.post('/api/odoo/sync/preview', selection),
   syncRequest: (id) => api.get(`/api/odoo/sync-requests/${id}`),
   settings: () => api.get('/api/odoo/settings'),
   saveSettings: (body) => api.put('/api/odoo/settings', body),
