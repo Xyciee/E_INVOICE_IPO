@@ -1,0 +1,26 @@
+# E-Invoice frontend on BIO-SERVER (next to the backend's docker-compose). See DEPLOY_DOCKER.md.
+#   cp .env.example .env            # once; adjust if needed
+#   docker compose build
+#   docker compose up -d
+# Then open http://10.10.1.20:8003 (or FRONTEND_PORT).
+#
+# The container joins the backend's Docker network and forwards /api/ and /admin/ to its `web` service, so the
+# backend must be running (docker compose up -d web in the backend folder) before the first start.
+
+services:
+  frontend:
+    build: .
+    image: invoicing-frontend:latest
+    environment:
+      BACKEND_URL: ${BACKEND_URL:-http://web:8000}
+    ports:
+      - "${FRONTEND_PORT:-8003}:80"
+    networks:
+      - default
+      - backend
+    restart: unless-stopped
+
+networks:
+  backend:
+    external: true
+    name: ${BACKEND_NETWORK:-invoicing_backend_default}

@@ -1,0 +1,14 @@
+node_modules
+dist
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+cookies.txt
+*.log
+*.md
+Dockerfile
+docker-compose.yml
+.dockerignore
+.oxlintrc.json
