@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { RefreshCw, Search, AlertTriangle, CloudDownload, FileText } from 'lucide-react';
+import {
+  RefreshCw, Search, AlertTriangle, CloudDownload, CloudUpload, FileText, Zap, Layers, ListFilter, Check, SearchCheck, Info
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNotify } from '../context/NotificationContext';
 import {
-  odooApi, errorText, SYNC_STATUS, keyBanner, syncSummary, formatMoney, formatDateTime
+  odooApi, errorText, fieldErrors, SYNC_STATUS, keyBanner, syncSummary, formatMoney, formatDateTime
 } from '../services/odooService';
 import './pages.css';
 import './odoo.css';
@@ -68,6 +70,7 @@ export default function OdooInvoicesPage() {
   const [error, setError] = useState('');
   const [syncRequest, setSyncRequest] = useState(null);
   const [syncResult, setSyncResult] = useState(null);
+  const [syncDialog, setSyncDialog] = useState(false);
   const [detailId, setDetailId] = useState(null);
   const pollTimer = useRef(null);
   const listArgs = useRef({ filters: EMPTY_FILTERS, offset: 0 });  // what the table shows now, for the reload
@@ -156,17 +159,22 @@ export default function OdooInvoicesPage() {
     loadList(applied, value);
   };
 
-  const handleSyncNow = async () => {
+  /** Starts a sync with the choice made in the dialog. Returns the 400 response so the dialog can show it. */
+  const handleSyncNow = async (choice) => {
     setSyncResult(null);
-    const res = await odooApi.syncNow();
+    const res = await odooApi.syncNow(choice);
     if (res.status === 202 || res.status === 200) {
+      setSyncDialog(false);
       setSyncRequest(res.data);
       pollRequest(res.data.id);
       if (res.status === 200) notify.info('Sync already running', 'Showing the sync that is already queued or running.');
-      return;
+      return null;
     }
+    if (res.status === 400) return res;
+    setSyncDialog(false);
     notify.danger('Sync not started', errorText(res, 'Could not start the sync.'));
     loadStatus();
+    return null;
   };
 
   const syncing = Boolean(syncRequest);
@@ -191,9 +199,9 @@ export default function OdooInvoicesPage() {
           {canSync && (
             <button
               className="btn btn-primary"
-              onClick={handleSyncNow}
+              onClick={() => setSyncDialog(true)}
               disabled={syncing || notSetUp}
-              title={notSetUp ? 'Odoo connection not set up (IT)' : 'Ask Odoo for new and changed invoices now'}
+              title={notSetUp ? 'Odoo connection not set up (IT)' : 'Choose what to read from Odoo now'}
             >
               {syncing ? <RefreshCw size={16} className="odoo-spin" /> : <CloudDownload size={16} />}
               {syncing ? (syncRequest.status === 'running' ? 'Syncing…' : 'Waiting to sync…') : 'Sync now'}
@@ -347,6 +355,9 @@ export default function OdooInvoicesPage() {
       </div>
 
       {detailId !== null && <OdooInvoiceDrawer id={detailId} isIT={isIT} onClose={() => setDetailId(null)} />}
+      {syncDialog && (
+        <SyncNowDialog startDate={status?.sync_start_date} onStart={handleSyncNow} onClose={() => setSyncDialog(false)} />
+      )}
     </div>
   );
 }
@@ -489,6 +500,255 @@ function OdooInvoiceDrawer({ id, isIT, onClose }) {
           )}
         </div>
       </aside>
+    </div>
+  );
+}
+
+const SYNC_CHOICES = [
+  { value: 'changes', icon: Zap, label: 'New changes', help: 'What was created or changed in Odoo since the last sync. Same as the automatic sync.' },
+  { value: 'all', icon: Layers, label: 'Sync all', help: 'Read every invoice again from the sync start date. Takes longer.' },
+  { value: 'custom', icon: ListFilter, label: 'Custom selection', help: 'Pick a date range or numbers, see what Odoo has, then choose what to upload.' }
+];
+
+const PREVIEW_STATUS = {
+  new: { label: 'New', tone: 'ok', pick: true },
+  changed: { label: 'Changed in Odoo', tone: 'warn', pick: true },
+  up_to_date: { label: 'Already up to date', tone: 'off', pick: false },
+  not_posted: { label: 'Not posted', tone: 'bad', pick: false, disabled: true, hint: 'Draft or cancelled before posting: not stored' }
+};
+
+function SyncNowDialog({ startDate, onStart, onClose }) {
+  const [mode, setMode] = useState('changes');
+  const [invoiceFrom, setInvoiceFrom] = useState('');
+  const [invoiceTo, setInvoiceTo] = useState('');
+  const [numbers, setNumbers] = useState('');
+  const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState('');
+  const [preview, setPreview] = useState(null);
+  const [picked, setPicked] = useState(() => new Set());
+
+  useEffect(() => {
+    const onKey = (e) => e.key === 'Escape' && !busy && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [busy, onClose]);
+
+  const numberList = () => numbers.split(/[\n,]+/).map((n) => n.trim()).filter(Boolean);
+
+  // a new range or new numbers make the list out of date
+  const editSelection = (setter) => (e) => {
+    setter(e.target.value);
+    setPreview(null);
+    setErrors({});
+  };
+
+  const showErrors = (res) => {
+    const errs = fieldErrors(res);
+    setErrors(Object.keys(errs).length ? errs : { mode: errorText(res) });
+  };
+
+  const findInvoices = async () => {
+    const body = {};
+    if (invoiceFrom) body.invoice_from = invoiceFrom;
+    if (invoiceTo) body.invoice_to = invoiceTo;
+    const list = numberList();
+    if (list.length) body.numbers = list;
+    setBusy('preview');
+    setErrors({});
+    const res = await odooApi.syncPreview(body);
+    setBusy('');
+    if (!res.ok) {
+      setPreview(null);
+      showErrors(res);
+      return;
+    }
+    setPreview(res.data);
+    setPicked(new Set(res.data.invoices.filter((i) => PREVIEW_STATUS[i.status]?.pick).map((i) => i.odoo_id)));
+  };
+
+  const selectable = (preview?.invoices || []).filter((i) => !PREVIEW_STATUS[i.status]?.disabled);
+  const allPicked = selectable.length > 0 && selectable.every((i) => picked.has(i.odoo_id));
+
+  const toggle = (id) => setPicked((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const pickWhere = (test) => setPicked(new Set(selectable.filter(test).map((i) => i.odoo_id)));
+
+  const start = async (e) => {
+    e.preventDefault();
+    let choice = { mode };
+    if (mode === 'custom') {
+      if (!preview) {
+        await findInvoices();
+        return;
+      }
+      choice = { mode: 'custom', move_ids: [...picked] };
+    }
+    setBusy('start');
+    setErrors({});
+    const refused = await onStart(choice);
+    setBusy('');
+    if (refused) showErrors(refused);
+  };
+
+  const counts = preview?.counts || {};
+  let primaryLabel = 'Start sync';
+  if (mode === 'custom') primaryLabel = preview ? `Upload ${picked.size} selected` : 'Find invoices in Odoo';
+  const primaryDisabled = Boolean(busy) || (mode === 'custom' && preview && picked.size === 0);
+
+  return (
+    <div className="odoo-modal-backdrop" onClick={() => !busy && onClose()}>
+      <form className={`odoo-modal ${preview && mode === 'custom' ? 'odoo-modal-wide' : ''}`} role="dialog"
+        aria-modal="true" aria-labelledby="odoo-sync-title" onClick={(e) => e.stopPropagation()} onSubmit={start}>
+        <div className="odoo-modal-header">
+          <div>
+            <h2 className="odoo-modal-title" id="odoo-sync-title">Sync now</h2>
+            <p className="odoo-modal-subtitle">Choose what to read from Odoo. Nothing is ever changed in Odoo.</p>
+          </div>
+          <button type="button" className="odoo-close" onClick={onClose} disabled={Boolean(busy)} aria-label="Close">&times;</button>
+        </div>
+
+        <div className="odoo-modal-body">
+          <div className="odoo-tiles" role="radiogroup" aria-label="What to sync">
+            {SYNC_CHOICES.map((c) => {
+              const Icon = c.icon;
+              const selected = mode === c.value;
+              return (
+                <label key={c.value} className={`odoo-tile ${selected ? 'selected' : ''}`}>
+                  <input type="radio" name="odoo-sync-mode" value={c.value} checked={selected}
+                    onChange={() => { setMode(c.value); setErrors({}); }} />
+                  {selected && <span className="odoo-tile-check"><Check size={12} strokeWidth={3} /></span>}
+                  <span className="odoo-tile-icon"><Icon size={18} /></span>
+                  <span className="odoo-tile-label">{c.label}</span>
+                  <span className="odoo-tile-help">
+                    {c.help}{c.value === 'all' && startDate ? ` From ${startDate}.` : ''}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+
+          {mode === 'custom' && (
+            <div className="odoo-panel">
+              <div className="odoo-panel-grid">
+                <label className="odoo-field">
+                  <span>Invoice date from</span>
+                  <input type="date" className="odoo-input" value={invoiceFrom} min={startDate || undefined}
+                    onChange={editSelection(setInvoiceFrom)} />
+                  {errors.invoice_from && <span className="odoo-field-error">{errors.invoice_from}</span>}
+                </label>
+                <label className="odoo-field">
+                  <span>Invoice date to</span>
+                  <input type="date" className="odoo-input" value={invoiceTo} min={invoiceFrom || startDate || undefined}
+                    onChange={editSelection(setInvoiceTo)} />
+                  {errors.invoice_to && <span className="odoo-field-error">{errors.invoice_to}</span>}
+                </label>
+                <label className="odoo-field odoo-panel-numbers">
+                  <span>Odoo or SO numbers <em className="odoo-optional">optional</em></span>
+                  <textarea className="odoo-input odoo-textarea" rows={2} value={numbers}
+                    placeholder="INV/2026/00012, SO-18125" onChange={editSelection(setNumbers)} />
+                  {errors.numbers && <span className="odoo-field-error">{errors.numbers}</span>}
+                </label>
+              </div>
+              <div className="odoo-panel-actions">
+                <span className="odoo-field-help">
+                  {preview ? 'Changed the dates or numbers? Search again.' : 'Odoo is only read here. You choose what to upload in the next step.'}
+                </span>
+                {preview && (
+                  <button type="button" className="btn btn-outline" onClick={findInvoices} disabled={Boolean(busy)}>
+                    {busy === 'preview' ? <RefreshCw size={16} className="odoo-spin" /> : <SearchCheck size={16} />}
+                    Search again
+                  </button>
+                )}
+              </div>
+
+              {preview && (
+                <div className="odoo-preview">
+                  <div className="odoo-preview-summary">
+                    <strong>{preview.total} found</strong>
+                    <span className="odoo-chip odoo-chip-ok">{counts.new || 0} new</span>
+                    <span className="odoo-chip odoo-chip-warn">{counts.changed || 0} changed</span>
+                    <span className="odoo-chip odoo-chip-off">{counts.up_to_date || 0} up to date</span>
+                    {counts.not_posted > 0 && <span className="odoo-chip odoo-chip-bad">{counts.not_posted} not posted</span>}
+                    <span className="odoo-preview-pick">
+                      Select:
+                      <button type="button" onClick={() => pickWhere((i) => PREVIEW_STATUS[i.status].pick)}>New &amp; changed</button>
+                      <button type="button" onClick={() => pickWhere(() => true)}>All</button>
+                      <button type="button" onClick={() => setPicked(new Set())}>None</button>
+                    </span>
+                  </div>
+                  {preview.truncated && (
+                    <div className="odoo-banner odoo-banner-warn">
+                      <Info size={16} /> Only the first {preview.limit} invoices are shown. Choose a shorter date range to see the rest.
+                    </div>
+                  )}
+                  {preview.total === 0 ? (
+                    <div className="odoo-preview-empty">Odoo has no customer invoices or refunds for this selection.</div>
+                  ) : (
+                    <div className="odoo-preview-table">
+                      <table className="data-table odoo-table">
+                        <thead>
+                          <tr>
+                            <th className="odoo-col-check">
+                              <input type="checkbox" checked={allPicked} aria-label="Select all"
+                                onChange={() => (allPicked ? setPicked(new Set()) : pickWhere(() => true))} />
+                            </th>
+                            <th>Odoo number</th>
+                            <th>Date</th>
+                            <th>SO number</th>
+                            <th>Buyer</th>
+                            <th className="num">Total</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {preview.invoices.map((inv) => {
+                            const st = PREVIEW_STATUS[inv.status] || PREVIEW_STATUS.up_to_date;
+                            const checked = picked.has(inv.odoo_id);
+                            return (
+                              <tr key={inv.odoo_id} className={`${st.disabled ? 'odoo-row-disabled' : ''} ${checked ? 'odoo-row-picked' : ''}`}
+                                onClick={() => !st.disabled && toggle(inv.odoo_id)} title={st.hint}>
+                                <td className="odoo-col-check">
+                                  <input type="checkbox" checked={checked} disabled={st.disabled}
+                                    onChange={() => toggle(inv.odoo_id)} onClick={(e) => e.stopPropagation()}
+                                    aria-label={`Select ${inv.name || inv.odoo_id}`} />
+                                </td>
+                                <td><strong>{inv.name || `#${inv.odoo_id}`}</strong>
+                                  {inv.move_type === 'out_refund' && <span className="odoo-muted"> refund</span>}</td>
+                                <td>{inv.invoice_date || '—'}</td>
+                                <td>{inv.invoice_origin || '—'}</td>
+                                <td>{inv.buyer_name || '—'}</td>
+                                <td className="num">{formatMoney(inv.amount_total, inv.currency)}</td>
+                                <td><span className={`odoo-chip odoo-chip-${st.tone}`}>{st.label}</span></td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          {errors.mode && <div className="odoo-banner odoo-banner-bad">{errors.mode}</div>}
+          {errors.move_ids && <div className="odoo-banner odoo-banner-bad">{errors.move_ids}</div>}
+        </div>
+
+        <div className="odoo-modal-footer">
+          {mode === 'custom' && preview && (
+            <span className="odoo-footer-note">{picked.size} of {preview.total} selected</span>
+          )}
+          <button type="button" className="btn btn-outline" onClick={onClose} disabled={Boolean(busy)}>Cancel</button>
+          <button type="submit" className="btn btn-primary" disabled={primaryDisabled}>
+            {busy === 'start' || (busy === 'preview' && !preview) ? <RefreshCw size={16} className="odoo-spin" />
+              : (mode === 'custom' ? (preview ? <CloudUpload size={16} /> : <SearchCheck size={16} />) : <CloudDownload size={16} />)}
+            {primaryLabel}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
