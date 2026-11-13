@@ -8,7 +8,7 @@ import {
   odooApi, errorText, fieldErrors, SYNC_STATUS, keyBanner, syncSummary, formatMoney, formatDateTime
 } from '../services/odooService';
 import OdooInvoiceSheet from '../components/OdooInvoiceSheet';
-import { buildOdooInvoice, ODOO_INVOICE_SHEET_CSS } from '../services/odooInvoicePrint';
+import { addressOf, buildOdooInvoice, ODOO_INVOICE_SHEET_CSS } from '../services/odooInvoicePrint';
 import { printElement } from '../services/printSheet';
 import './pages.css';
 import './odoo.css';
@@ -446,7 +446,17 @@ function OdooInvoiceDrawer({ id, isIT, onClose }) {
                   <dl className="odoo-facts">
                     <div><dt>Name</dt><dd>{data.buyer.name || '—'}</dd></div>
                     <div><dt>TIN (as typed in Odoo)</dt><dd>{data.buyer.vat || '—'}</dd></div>
-                    <div><dt>Address</dt><dd>{[data.buyer.street, data.buyer.street2, data.buyer.city, data.buyer.zip, data.buyer.country_name].filter(Boolean).join(', ') || '—'}</dd></div>
+                    <div><dt>Company address</dt><dd>{addressOf(data.buyer) || '—'}</dd></div>
+                    {data.invoice_address && (
+                      <div>
+                        <dt>Invoice address (printed)</dt>
+                        <dd>
+                          {data.invoice_address.name}
+                          <br />
+                          {addressOf(data.invoice_address) || <span className="odoo-muted">no address on this contact: the company address is printed</span>}
+                        </dd>
+                      </div>
+                    )}
                   </dl>
                 ) : <div className="odoo-muted">No buyer on this invoice.</div>}
               </section>

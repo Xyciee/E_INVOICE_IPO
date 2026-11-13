@@ -24,7 +24,14 @@ function termsText(invoiceDate, dueDate) {
   return days > 0 ? `${days} DAYS` : '';
 }
 
-function addressOf(buyer) {
+const hasAddress = (p) => Boolean(p && (p.street || p.street2 || p.city || p.zip));
+
+/** The address to print: the invoice's Invoice Address contact when it has one, else the buyer company's. */
+export function invoiceAddressOf(detail) {
+  return hasAddress(detail?.invoice_address) ? detail.invoice_address : detail?.buyer;
+}
+
+export function addressOf(buyer) {
   if (!buyer) return '';
   const parts = [buyer.street, buyer.street2, buyer.city, buyer.state_name, buyer.zip];
   if (buyer.country_code && buyer.country_code !== 'PH' && buyer.country_name) parts.push(buyer.country_name);
@@ -81,7 +88,7 @@ export function buildOdooInvoice(detail) {
     buyer: {
       name: detail?.buyer?.name || move.partner_name || '',
       tin: detail?.buyer?.vat || '',
-      address: addressOf(detail?.buyer)
+      address: addressOf(invoiceAddressOf(detail))
     },
     items,
     totals: {
