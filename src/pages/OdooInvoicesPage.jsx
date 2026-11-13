@@ -3,7 +3,7 @@ import { RefreshCw, Search, AlertTriangle, CloudDownload, FileText } from 'lucid
 import { useAuth } from '../context/AuthContext';
 import { useNotify } from '../context/NotificationContext';
 import {
-  odooApi, errorText, SYNC_STATUS, keyBanner, syncSummary, formatMoney, formatDateTime
+  odooApi, errorText, fieldErrors, SYNC_STATUS, keyBanner, syncSummary, formatMoney, formatDateTime
 } from '../services/odooService';
 import './pages.css';
 import './odoo.css';
@@ -68,6 +68,7 @@ export default function OdooInvoicesPage() {
   const [error, setError] = useState('');
   const [syncRequest, setSyncRequest] = useState(null);
   const [syncResult, setSyncResult] = useState(null);
+  const [syncDialog, setSyncDialog] = useState(false);
   const [detailId, setDetailId] = useState(null);
   const pollTimer = useRef(null);
   const listArgs = useRef({ filters: EMPTY_FILTERS, offset: 0 });  // what the table shows now, for the reload
@@ -156,17 +157,22 @@ export default function OdooInvoicesPage() {
     loadList(applied, value);
   };
 
-  const handleSyncNow = async () => {
+  /** Starts a sync with the choice made in the dialog. Returns the 400 response so the dialog can show it. */
+  const handleSyncNow = async (choice) => {
     setSyncResult(null);
-    const res = await odooApi.syncNow();
+    const res = await odooApi.syncNow(choice);
     if (res.status === 202 || res.status === 200) {
+      setSyncDialog(false);
       setSyncRequest(res.data);
       pollRequest(res.data.id);
       if (res.status === 200) notify.info('Sync already running', 'Showing the sync that is already queued or running.');
-      return;
+      return null;
     }
+    if (res.status === 400) return res;
+    setSyncDialog(false);
     notify.danger('Sync not started', errorText(res, 'Could not start the sync.'));
     loadStatus();
+    return null;
   };
 
   const syncing = Boolean(syncRequest);
@@ -191,9 +197,9 @@ export default function OdooInvoicesPage() {
           {canSync && (
             <button
               className="btn btn-primary"
-              onClick={handleSyncNow}
+              onClick={() => setSyncDialog(true)}
               disabled={syncing || notSetUp}
-              title={notSetUp ? 'Odoo connection not set up (IT)' : 'Ask Odoo for new and changed invoices now'}
+              title={notSetUp ? 'Odoo connection not set up (IT)' : 'Choose what to read from Odoo now'}
             >
               {syncing ? <RefreshCw size={16} className="odoo-spin" /> : <CloudDownload size={16} />}
               {syncing ? (syncRequest.status === 'running' ? 'Syncing…' : 'Waiting to sync…') : 'Sync now'}
@@ -347,6 +353,9 @@ export default function OdooInvoicesPage() {
       </div>
 
       {detailId !== null && <OdooInvoiceDrawer id={detailId} isIT={isIT} onClose={() => setDetailId(null)} />}
+      {syncDialog && (
+        <SyncNowDialog startDate={status?.sync_start_date} onStart={handleSyncNow} onClose={() => setSyncDialog(false)} />
+      )}
     </div>
   );
 }
@@ -489,6 +498,105 @@ function OdooInvoiceDrawer({ id, isIT, onClose }) {
           )}
         </div>
       </aside>
+    </div>
+  );
+}
+
+const SYNC_CHOICES = [
+  { value: 'changes', label: 'New changes', help: 'Invoices created or changed in Odoo since the last sync (what the automatic sync does).' },
+  { value: 'all', label: 'Sync all', help: 'Read every invoice again from the sync start date. Takes longer; use it after changing the companies or the start date.' },
+  { value: 'custom', label: 'Custom selection', help: 'Only invoices in a date range and/or with the Odoo or SO numbers you type.' }
+];
+
+function SyncNowDialog({ startDate, onStart, onClose }) {
+  const [mode, setMode] = useState('changes');
+  const [invoiceFrom, setInvoiceFrom] = useState('');
+  const [invoiceTo, setInvoiceTo] = useState('');
+  const [numbers, setNumbers] = useState('');
+  const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e) => e.key === 'Escape' && !busy && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [busy, onClose]);
+
+  const start = async (e) => {
+    e.preventDefault();
+    const choice = { mode };
+    if (mode === 'custom') {
+      if (invoiceFrom) choice.invoice_from = invoiceFrom;
+      if (invoiceTo) choice.invoice_to = invoiceTo;
+      const list = numbers.split(/[\n,]+/).map((n) => n.trim()).filter(Boolean);
+      if (list.length) choice.numbers = list;
+    }
+    setBusy(true);
+    setErrors({});
+    const refused = await onStart(choice);
+    setBusy(false);
+    if (refused) {
+      const errs = fieldErrors(refused);
+      setErrors(Object.keys(errs).length ? errs : { mode: errorText(refused) });
+    }
+  };
+
+  return (
+    <div className="odoo-modal-backdrop" onClick={() => !busy && onClose()}>
+      <form className="odoo-modal" role="dialog" aria-modal="true" aria-labelledby="odoo-sync-title"
+        onClick={(e) => e.stopPropagation()} onSubmit={start}>
+        <div className="odoo-drawer-header">
+          <h2 className="odoo-drawer-title" id="odoo-sync-title">Sync now: what should be read from Odoo?</h2>
+          <button type="button" className="odoo-close" onClick={onClose} disabled={busy} aria-label="Close">&times;</button>
+        </div>
+        <div className="odoo-modal-body">
+          {SYNC_CHOICES.map((c) => (
+            <label key={c.value} className={`odoo-choice ${mode === c.value ? 'selected' : ''}`}>
+              <input type="radio" name="odoo-sync-mode" value={c.value} checked={mode === c.value}
+                onChange={() => { setMode(c.value); setErrors({}); }} />
+              <span>
+                <strong>{c.label}</strong>
+                <span className="odoo-field-help">
+                  {c.help}{c.value === 'all' && startDate ? ` (from ${startDate})` : ''}
+                </span>
+              </span>
+            </label>
+          ))}
+
+          {mode === 'custom' && (
+            <div className="odoo-custom">
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                <label className="odoo-field">
+                  <span>Invoice date from</span>
+                  <input type="date" className="odoo-input" value={invoiceFrom} min={startDate || undefined}
+                    onChange={(e) => setInvoiceFrom(e.target.value)} />
+                  {errors.invoice_from && <span className="odoo-field-error">{errors.invoice_from}</span>}
+                </label>
+                <label className="odoo-field">
+                  <span>to</span>
+                  <input type="date" className="odoo-input" value={invoiceTo} min={invoiceFrom || startDate || undefined}
+                    onChange={(e) => setInvoiceTo(e.target.value)} />
+                  {errors.invoice_to && <span className="odoo-field-error">{errors.invoice_to}</span>}
+                </label>
+              </div>
+              <label className="odoo-field">
+                <span>Odoo or SO numbers (optional)</span>
+                <textarea className="odoo-input odoo-textarea" rows={4} value={numbers}
+                  placeholder={'INV/2026/00012\nSO-18125'} onChange={(e) => setNumbers(e.target.value)} />
+                <span className="odoo-field-help">One per line or separated by commas, up to 50. Dates and numbers can be combined.</span>
+                {errors.numbers && <span className="odoo-field-error">{errors.numbers}</span>}
+              </label>
+            </div>
+          )}
+          {errors.mode && <div className="odoo-banner odoo-banner-bad">{errors.mode}</div>}
+        </div>
+        <div className="odoo-modal-footer">
+          <button type="button" className="btn btn-outline" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="submit" className="btn btn-primary" disabled={busy}>
+            {busy ? <RefreshCw size={16} className="odoo-spin" /> : <CloudDownload size={16} />} Start sync
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

@@ -270,3 +270,70 @@
   .odoo-input-wide { min-width: 0; width: 100%; }
   .odoo-filters label { flex: 1 1 140px; }
 }
+
+/* Sync now dialog */
+.odoo-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.odoo-modal {
+  width: min(560px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+}
+
+.odoo-modal-body {
+  padding: 16px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.odoo-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 22px;
+  border-top: 1px solid var(--border-light);
+}
+
+.odoo-choice {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.odoo-choice > span { display: flex; flex-direction: column; gap: 2px; }
+.odoo-choice input { margin-top: 3px; }
+.odoo-choice.selected { border-color: var(--primary); background: var(--primary-light); }
+
+.odoo-custom {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 2px 0 30px;
+}
+
+.odoo-textarea {
+  height: auto;
+  padding: 8px 10px;
+  font-family: inherit;
+  resize: vertical;
+}

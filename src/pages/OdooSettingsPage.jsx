@@ -22,9 +22,9 @@ function formFrom(settings) {
     api_key: '',
     api_key_expires_on: settings?.api_key_expires_on || '',
     sync_start_date: settings?.sync_start_date || '2026-12-01',
-    company_id: settings?.company_id ?? '',
+    company_ids: (settings?.company_ids || []).join(', '),
     auto_sync_enabled: settings?.auto_sync_enabled ?? true,
-    sync_interval_minutes: settings?.sync_interval_minutes ?? 10
+    sync_interval_minutes: settings?.sync_interval_minutes ?? ''
   };
 }
 
@@ -33,10 +33,14 @@ function requestBody(form) {
     odoo_url: form.odoo_url.trim(),
     odoo_database: form.odoo_database.trim(),
     sync_start_date: form.sync_start_date,
-    company_id: form.company_id === '' ? null : Number(form.company_id),
-    auto_sync_enabled: Boolean(form.auto_sync_enabled),
-    sync_interval_minutes: Number(form.sync_interval_minutes)
+    // "1, 3" or "1 3": the server checks each id; empty = every company
+    company_ids: form.company_ids.trim(),
+    auto_sync_enabled: Boolean(form.auto_sync_enabled)
   };
+  // only asked when automatic sync is on; empty = every 10 minutes
+  if (form.auto_sync_enabled) {
+    body.sync_interval_minutes = String(form.sync_interval_minutes ?? '').trim() === '' ? null : Number(form.sync_interval_minutes);
+  }
   if (form.api_key.trim()) body.api_key = form.api_key.trim();
   if (form.api_key_expires_on) body.api_key_expires_on = form.api_key_expires_on;
   return body;
@@ -206,21 +210,28 @@ export default function OdooSettingsPage() {
             {err('sync_start_date')}
           </label>
           <label className="odoo-field">
-            <span>Odoo company id (optional)</span>
-            <input className="odoo-input" type="number" min="1" value={form.company_id} onChange={set('company_id')} />
-            <span className="odoo-field-help">Empty = invoices of every company in this Odoo.</span>
-            {err('company_id')}
+            <span>Odoo company ids (optional)</span>
+            <input className="odoo-input" inputMode="numeric" placeholder="e.g. 1, 3" value={form.company_ids}
+              onChange={set('company_ids')} />
+            <span className="odoo-field-help">One or more ids, separated by commas. Empty = invoices of every company in this Odoo.</span>
+            {err('company_ids')}
           </label>
-          <label className="odoo-field">
-            <span>Sync every (minutes)</span>
-            <input className="odoo-input" type="number" min="5" max="1440" value={form.sync_interval_minutes}
-              onChange={set('sync_interval_minutes')} required />
-            {err('sync_interval_minutes')}
-          </label>
-          <label className="odoo-checkbox">
-            <input type="checkbox" checked={form.auto_sync_enabled} onChange={set('auto_sync_enabled')} />
-            Automatic sync on
-          </label>
+          <div className="odoo-field">
+            <label className="odoo-checkbox">
+              <input type="checkbox" checked={form.auto_sync_enabled} onChange={set('auto_sync_enabled')} />
+              Automatic sync on
+            </label>
+            <span className="odoo-field-help">Off: Odoo is read only when someone presses Sync now.</span>
+          </div>
+          {form.auto_sync_enabled && (
+            <label className="odoo-field">
+              <span>Sync every (minutes, optional)</span>
+              <input className="odoo-input" type="number" min="5" max="1440" placeholder="10"
+                value={form.sync_interval_minutes} onChange={set('sync_interval_minutes')} />
+              <span className="odoo-field-help">5 to 1440. Empty = every 10 minutes.</span>
+              {err('sync_interval_minutes')}
+            </label>
+          )}
         </div>
 
         <div className="odoo-actions">
