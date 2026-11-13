@@ -8,7 +8,9 @@ import {
   odooApi, errorText, fieldErrors, SYNC_STATUS, keyBanner, syncSummary, formatMoney, formatDateTime
 } from '../services/odooService';
 import OdooInvoiceSheet from '../components/OdooInvoiceSheet';
-import { addressOf, buildOdooInvoice, ODOO_INVOICE_SHEET_CSS } from '../services/odooInvoicePrint';
+import {
+  addressOf, businessAddress, buildOdooInvoice, ADDRESS_SOURCES, ODOO_INVOICE_SHEET_CSS
+} from '../services/odooInvoicePrint';
 import { printElement } from '../services/printSheet';
 import './pages.css';
 import './odoo.css';
@@ -392,6 +394,7 @@ function OdooInvoiceDrawer({ id, isIT, onClose }) {
   };
 
   const move = data?.move;
+  const printedAddress = businessAddress(data);
   const taxNames = Object.fromEntries((data?.taxes || []).map((t) => [t.odoo_id, t.name]));
 
   return (
@@ -428,6 +431,7 @@ function OdooInvoiceDrawer({ id, isIT, onClose }) {
                   <div><dt>Due date</dt><dd>{move.invoice_date_due || '—'}</dd></div>
                   <div><dt>SO number</dt><dd>{move.invoice_origin || '—'}</dd></div>
                   <div><dt>Reference</dt><dd>{move.ref || '—'}</dd></div>
+                  <div><dt>P.O Remarks</dt><dd>{move.po_remarks || '—'}</dd></div>
                   <div><dt>Payment</dt><dd>{move.payment_state || '—'}</dd></div>
                   <div><dt>Company</dt><dd>{move.company_name || '—'}</dd></div>
                   <div><dt>Untaxed</dt><dd>{formatMoney(move.amount_untaxed, move.currency_code)}</dd></div>
@@ -449,14 +453,23 @@ function OdooInvoiceDrawer({ id, isIT, onClose }) {
                     <div><dt>Company address</dt><dd>{addressOf(data.buyer) || '—'}</dd></div>
                     {data.invoice_address && (
                       <div>
-                        <dt>Invoice address (printed)</dt>
-                        <dd>
-                          {data.invoice_address.name}
-                          <br />
-                          {addressOf(data.invoice_address) || <span className="odoo-muted">no address on this contact: the company address is printed</span>}
-                        </dd>
+                        <dt>Invoice address</dt>
+                        <dd>{data.invoice_address.name}<br />{addressOf(data.invoice_address) || <span className="odoo-muted">no street / city</span>}</dd>
                       </div>
                     )}
+                    {data.delivery_address && (
+                      <div>
+                        <dt>Delivery address</dt>
+                        <dd>{data.delivery_address.name}<br />{addressOf(data.delivery_address) || <span className="odoo-muted">no street / city</span>}</dd>
+                      </div>
+                    )}
+                    <div>
+                      <dt>Printed as Business Address</dt>
+                      <dd>
+                        {printedAddress.text || <span className="odoo-muted">none: fill the customer's address in Odoo</span>}
+                        {printedAddress.source && <div className="odoo-muted">from the {ADDRESS_SOURCES[printedAddress.source]}</div>}
+                      </dd>
+                    </div>
                   </dl>
                 ) : <div className="odoo-muted">No buyer on this invoice.</div>}
               </section>
