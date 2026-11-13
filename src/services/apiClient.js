@@ -154,5 +154,8 @@ export const api = {
   post: (path, body, query, options = {}) =>
     apiRequest('POST', path, { body, query, ...options }),
   patch: (path, body, query, options = {}) =>
-    apiRequest('PATCH', path, { body, query, ...options })
+    apiRequest('PATCH', path, { body, query, ...options }),
+  put: (path, body, query, options = {}) =>
+    apiRequest('PUT', path, { body, query, ...options }),
+  delete: (path, query, options = {}) => apiRequest('DELETE', path, { query, ...options })
 };
