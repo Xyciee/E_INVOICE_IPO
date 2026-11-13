@@ -11,6 +11,8 @@ import SettingsPage from './pages/SettingsPage';
 import ApiTesterPage from './pages/ApiTesterPage';
 import ApiSpeedTestPage from './pages/ApiSpeedTestPage';
 import CreditNotesPage from './pages/CreditNotesPage';
+import OdooInvoicesPage from './pages/OdooInvoicesPage';
+import OdooSettingsPage from './pages/OdooSettingsPage';
 import ErrorBoundary from './components/feedback/ErrorBoundary';
 
 const STORAGE_KEY_ACTIVE_PAGE = 'invoicehub_active_page';
@@ -22,7 +24,9 @@ const VALID_PAGES = new Set([
   'credit-notes',
   'settings',
   'api-tester',
-  'api-speed-test'
+  'api-speed-test',
+  'odoo-invoices',
+  'odoo-settings'
 ]);
 
 const PAGE_TAB_TITLES = {
@@ -33,7 +37,9 @@ const PAGE_TAB_TITLES = {
   'credit-notes': 'Credit Notes',
   settings: 'Settings',
   'api-tester': 'API Tester',
-  'api-speed-test': 'API Speed Test'
+  'api-speed-test': 'API Speed Test',
+  'odoo-invoices': 'Odoo Invoices',
+  'odoo-settings': 'Odoo Connection'
 };
 
 function AppContent() {
@@ -133,6 +139,10 @@ function AppContent() {
         return <ApiTesterPage />;
       case 'api-speed-test':
         return <ApiSpeedTestPage />;
+      case 'odoo-invoices':
+        return <OdooInvoicesPage />;
+      case 'odoo-settings':
+        return <OdooSettingsPage />;
       default:
         return <DashboardPage onNavigate={setActivePage} />;
     }

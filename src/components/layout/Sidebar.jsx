@@ -6,6 +6,8 @@ import {
   Receipt,
   FileMinus,
   Gauge,
+  CloudDownload,
+  PlugZap,
   ChevronLeft,
   ChevronRight,
   LogOut,
@@ -79,6 +81,12 @@ export default function Sidebar({
           id: 'credit-notes',
           label: 'Credit Notes',
           icon: FileMinus,
+        },
+        {
+          id: 'odoo-invoices',
+          label: 'Odoo Invoices',
+          icon: CloudDownload,
+          permission: 'view_odoo_invoices'
         }
       ]
     },
@@ -90,10 +98,22 @@ export default function Sidebar({
           label: 'API Speed Test',
           icon: Gauge,
           badge: null
+        },
+        {
+          id: 'odoo-settings',
+          label: 'Odoo Connection',
+          icon: PlugZap,
+          permission: 'manage_odoo_settings'
         }
       ]
     }
-  ];
+  ]
+    // items with a `permission` are shown only to users who have it (from /api/me)
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !item.permission || (user?.permissions || []).includes(item.permission))
+    }))
+    .filter((group) => group.items.length > 0);
 
   const handleNavClick = (id) => {
     onSelectPage(id);
