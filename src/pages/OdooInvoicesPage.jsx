@@ -1,12 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  RefreshCw, Search, AlertTriangle, CloudDownload, CloudUpload, FileText, Zap, Layers, ListFilter, Check, SearchCheck, Info
+  RefreshCw, Search, AlertTriangle, CloudDownload, CloudUpload, FileText, Printer, Zap, Layers, ListFilter, Check, SearchCheck, Info
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNotify } from '../context/NotificationContext';
 import {
   odooApi, errorText, fieldErrors, SYNC_STATUS, keyBanner, syncSummary, formatMoney, formatDateTime
 } from '../services/odooService';
+import OdooInvoiceSheet from '../components/OdooInvoiceSheet';
+import { buildOdooInvoice, ODOO_INVOICE_SHEET_CSS } from '../services/odooInvoicePrint';
+import { printElement } from '../services/printSheet';
 import './pages.css';
 import './odoo.css';
 
@@ -366,6 +369,7 @@ function OdooInvoiceDrawer({ id, isIT, onClose }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [raw, setRaw] = useState(null);
+  const [printing, setPrinting] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -374,13 +378,13 @@ function OdooInvoiceDrawer({ id, isIT, onClose }) {
       if (res.ok) setData(res.data);
       else setError(errorText(res, 'Could not load this invoice.'));
     });
-    const onKey = (e) => e.key === 'Escape' && onClose();
+    const onKey = (e) => e.key === 'Escape' && !printing && onClose();
     window.addEventListener('keydown', onKey);
     return () => {
       alive = false;
       window.removeEventListener('keydown', onKey);
     };
-  }, [id, onClose]);
+  }, [id, onClose, printing]);
 
   const loadRaw = async () => {
     const res = await odooApi.invoice(id, true);
@@ -403,7 +407,14 @@ function OdooInvoiceDrawer({ id, isIT, onClose }) {
               </div>
             )}
           </div>
-          <button className="odoo-close" onClick={onClose} aria-label="Close">&times;</button>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {data && (
+              <button className="btn btn-outline" onClick={() => setPrinting(true)} title="Letter-size sales invoice">
+                <Printer size={16} /> Print invoice
+              </button>
+            )}
+            <button className="odoo-close" onClick={onClose} aria-label="Close">&times;</button>
+          </div>
         </div>
         <div className="odoo-drawer-body">
           {error && <div className="odoo-banner odoo-banner-bad">{error}</div>}
@@ -500,6 +511,7 @@ function OdooInvoiceDrawer({ id, isIT, onClose }) {
           )}
         </div>
       </aside>
+      {printing && data && <OdooInvoicePrintPreview detail={data} onClose={() => setPrinting(false)} />}
     </div>
   );
 }
@@ -749,6 +761,60 @@ function SyncNowDialog({ startDate, onStart, onClose }) {
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+
+function OdooInvoicePrintPreview({ detail, onClose }) {
+  const invoice = buildOdooInvoice(detail);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
+
+  const print = () => printElement({
+    element: <OdooInvoiceSheet invoice={invoice} />,
+    css: ODOO_INVOICE_SHEET_CSS,
+    title: `${invoice.isRefund ? 'Credit note' : 'Invoice'} ${invoice.number}`,
+    page: 'letter',
+    margin: '0.4in'
+  });
+
+  return (
+    <div className="odoo-modal-backdrop odoo-print-backdrop" onClick={(e) => { e.stopPropagation(); onClose(); }}>
+      <div className="odoo-print-modal" role="dialog" aria-modal="true" aria-label="Print preview"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="odoo-modal-header">
+          <div>
+            <h2 className="odoo-modal-title">Print preview: {invoice.number}</h2>
+            <p className="odoo-modal-subtitle">Letter size (8.5 × 11 in). In the print window, choose the printer and keep the scale at 100%.</p>
+          </div>
+          <button type="button" className="odoo-close" onClick={onClose} aria-label="Close">&times;</button>
+        </div>
+        {invoice.state !== 'posted' && (
+          <div className="odoo-banner odoo-banner-bad" style={{ margin: '0 24px' }}>
+            <AlertTriangle size={16} /> This invoice is not posted in Odoo any more: the printout is stamped NOT VALID.
+          </div>
+        )}
+        <div className="odoo-print-paper-wrap">
+          <style>{ODOO_INVOICE_SHEET_CSS}</style>
+          <div className="odoo-print-paper">
+            <OdooInvoiceSheet invoice={invoice} />
+          </div>
+        </div>
+        <div className="odoo-modal-footer">
+          <button type="button" className="btn btn-outline" onClick={onClose}>Close</button>
+          <button type="button" className="btn btn-primary" onClick={print}><Printer size={16} /> Print</button>
+        </div>
+      </div>
     </div>
   );
 }

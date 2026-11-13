@@ -479,3 +479,33 @@
   .odoo-panel-grid { grid-template-columns: 1fr 1fr; }
   .odoo-panel-numbers { grid-column: 1 / -1; }
 }
+
+/* Letter-size invoice print preview (the sheet's own styles are in components/OdooInvoiceSheet.jsx) */
+.odoo-print-backdrop { z-index: 1100; }
+
+.odoo-print-modal {
+  width: min(9.6in, 100%);
+  max-height: calc(100vh - 32px);
+  background: var(--bg-surface);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 24px 48px -12px rgba(15, 23, 42, 0.35);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.odoo-print-paper-wrap {
+  flex: 1;
+  overflow: auto;
+  padding: 18px 24px;
+  background: #e2e8f0;
+}
+
+.odoo-print-paper {
+  width: 8.5in;
+  min-height: 11in;
+  padding: 0.4in;
+  margin: 0 auto;
+  background: #fff;
+  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.18);
+}
