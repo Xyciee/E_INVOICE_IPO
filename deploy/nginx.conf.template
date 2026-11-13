@@ -1,0 +1,59 @@
+# nginx for the E-Invoice frontend container. ${BACKEND_URL} is filled in at start (docker-compose.yml / .env).
+# Only variables set in the container's environment are replaced, so nginx's own $variables stay as they are.
+
+# Behind the Cloudflare tunnel the original scheme arrives in X-Forwarded-Proto; on the LAN it is plain http.
+map $http_x_forwarded_proto $forwarded_proto {
+    default $http_x_forwarded_proto;
+    ""      $scheme;
+}
+
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+    client_max_body_size 10m;
+    server_tokens off;
+
+    # Docker's own DNS: the backend is looked up again when its container is recreated (new IP after an update).
+    resolver 127.0.0.11 valid=30s ipv6=off;
+    set $backend "${BACKEND_URL}";
+
+    # Django: the API, its admin pages and the admin's static files
+    location ~ ^/(api|admin|static)/ {
+        proxy_pass $backend;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP $remote_addr;
+        # keep the visitor's address as Cloudflare sent it (the app's audit log reads CF-Connecting-IP)
+        proxy_set_header CF-Connecting-IP $http_cf_connecting_ip;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 120s;
+    }
+
+    # for the container health check
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # built files have a content hash in their name: cache them long
+    location /assets/ {
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # the page itself is never cached, so a new release shows at the next reload
+    location = /index.html {
+        add_header Cache-Control "no-store";
+    }
+
+    # single-page app: every other path opens index.html
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
