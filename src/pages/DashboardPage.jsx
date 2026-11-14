@@ -16,6 +16,7 @@ import {
   X
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { canOpen } from '../config/apps';
 import { api } from '../services/apiClient';
 import {
   extractDocumentList,
@@ -447,6 +448,8 @@ function OrderHeatmap({ orders }) {
 
 export default function DashboardPage({ onNavigate }) {
   const { user } = useAuth();
+  // only for people whose role opens Packing Scan (scan_and_print); for the others the button would do nothing
+  const canScan = canOpen(user, 'packing-scan');
   const [loading, setLoading] = useState(true);
   const [warning, setWarning] = useState('');
   const [invoices, setInvoices] = useState([]);
@@ -657,7 +660,7 @@ export default function DashboardPage({ onNavigate }) {
               </h2>
             </div>
             <div className="dash-hero-actions" style={{ marginTop: 0 }}>
-              {onNavigate && (
+              {onNavigate && canScan && (
                 <button
                   className="dash-btn dash-btn-white"
                   type="button"
