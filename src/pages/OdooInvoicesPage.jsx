@@ -18,6 +18,7 @@ import './odoo.css';
 /*
  * Odoo invoices (Executive, Accounting, IT): customer invoices and refunds the backend pulled from Odoo.
  *   GET  /api/odoo/invoices, /api/odoo/invoices/<id>   (view_odoo_invoices; ?raw=1 for IT only)
+ *        list: ?company_id= picks one of `companies` (the companies chosen in Odoo Connection that have invoices)
  *   GET  /api/odoo/sync-runs                           sync status, schedule, key expiry
  *   POST /api/odoo/sync                                Sync now (run_odoo_sync: Accounting, IT) — only queues
  *   GET  /api/odoo/sync-requests/<id>                  polled every 2 s until done / failed
@@ -34,7 +35,7 @@ const FLAG_OPTIONS = [
   { value: 'reset_to_draft', label: 'Reset to draft after posting' },
   { value: 'none', label: 'Not flagged' }
 ];
-const EMPTY_FILTERS = { move_type: '', state: '', flag: '', q: '', invoice_from: '', invoice_to: '' };
+const EMPTY_FILTERS = { company_id: '', move_type: '', state: '', flag: '', q: '', invoice_from: '', invoice_to: '' };
 
 function minutesText(minutes) {
   if (minutes === null || minutes === undefined) return 'never';
@@ -66,6 +67,7 @@ export default function OdooInvoicesPage() {
 
   const [status, setStatus] = useState(null);
   const [rows, setRows] = useState([]);
+  const [companies, setCompanies] = useState([]);  // [{company_id, company_name}] the Company filter can pick
   const [count, setCount] = useState(0);
   const [offset, setOffset] = useState(0);
   const [nextOffset, setNextOffset] = useState(null);
@@ -97,6 +99,7 @@ export default function OdooInvoicesPage() {
     }
     setError('');
     setRows(res.data.results || []);
+    setCompanies(res.data.companies || []);
     setCount(res.data.count || 0);
     setNextOffset(res.data.next_offset);
   }, []);
@@ -187,6 +190,9 @@ export default function OdooInvoicesPage() {
   const banner = (canSync || isIT) && status ? keyBanner(status.api_key_status, status.api_key_days_left,
     status.api_key_expires_on) : null;
   const notSetUp = status && !status.configured;
+  // one company only: no filter and no column (they would say the same thing on every row)
+  const multiCompany = companies.length > 1 || Boolean(filters.company_id);
+  const columnCount = multiCompany ? 11 : 10;
 
   return (
     <div>
@@ -259,6 +265,17 @@ export default function OdooInvoicesPage() {
 
       <div className="card-section">
         <form className="odoo-filters" onSubmit={applyFilters}>
+          {multiCompany && (
+            <label>
+              Company
+              <select className="odoo-input" value={filters.company_id} onChange={(e) => setFilters({ ...filters, company_id: e.target.value })}>
+                <option value="">All companies</option>
+                {companies.map((c) => (
+                  <option key={c.company_id} value={String(c.company_id)}>{c.company_name || `Company ${c.company_id}`}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <label>
             Search
             <input
@@ -311,6 +328,7 @@ export default function OdooInvoicesPage() {
             <thead>
               <tr>
                 <th>Odoo number</th>
+                {multiCompany && <th>Company</th>}
                 <th>Type</th>
                 <th>State</th>
                 <th>Payment</th>
@@ -328,6 +346,7 @@ export default function OdooInvoicesPage() {
                   <td><strong>{r.name || `#${r.odoo_id}`}</strong>
                     {r.reversed_entry_id && <div className="odoo-muted">refund of {r.reversed_entry_name || `Odoo id ${r.reversed_entry_id}`}</div>}
                   </td>
+                  {multiCompany && <td>{r.company_name || '—'}</td>}
                   <td>{typeLabel(r.move_type)}</td>
                   <td>{r.state}</td>
                   <td>{r.payment_state || '—'}</td>
@@ -341,7 +360,7 @@ export default function OdooInvoicesPage() {
               ))}
               {!loading && rows.length === 0 && !error && (
                 <tr>
-                  <td colSpan={10} style={{ textAlign: 'center', padding: '28px' }} className="odoo-muted">
+                  <td colSpan={columnCount} style={{ textAlign: 'center', padding: '28px' }} className="odoo-muted">
                     No Odoo invoices {JSON.stringify(applied) !== JSON.stringify(EMPTY_FILTERS) ? 'match these filters' : 'yet'}.
                   </td>
                 </tr>
