@@ -399,6 +399,10 @@
   border: 1px solid var(--border-light);
 }
 
+.odoo-panel-company {
+  grid-column: 1 / -1;
+  max-width: 420px;
+}
 .odoo-panel-grid {
   display: grid;
   grid-template-columns: 1fr 1fr 2fr;
