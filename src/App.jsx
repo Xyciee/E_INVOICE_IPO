@@ -3,6 +3,8 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { NotificationProvider } from './context/NotificationContext';
 import LoginPage from './pages/LoginPage';
 import AdminLayout from './components/layout/AdminLayout';
+import LauncherLayout, { AppLauncher } from './components/layout/LauncherLayout';
+import { appsFor, canOpen, usesLauncher } from './config/apps';
 import DashboardPage from './pages/DashboardPage';
 import PackingScanPage from './pages/PackingScanPage';
 import OrdersPage from './pages/OrdersPage';
@@ -17,6 +19,7 @@ import ErrorBoundary from './components/feedback/ErrorBoundary';
 
 const STORAGE_KEY_ACTIVE_PAGE = 'invoicehub_active_page';
 const VALID_PAGES = new Set([
+  'home',
   'dashboard',
   'packing-scan',
   'orders',
@@ -30,6 +33,7 @@ const VALID_PAGES = new Set([
 ]);
 
 const PAGE_TAB_TITLES = {
+  home: 'Apps',
   dashboard: 'Dashboard',
   'packing-scan': 'Packing Scan',
   orders: 'Orders',
@@ -42,16 +46,29 @@ const PAGE_TAB_TITLES = {
   'odoo-settings': 'Odoo Connection'
 };
 
+/*
+ * The page actually shown: the one picked, unless the user's permissions do not open it (an old saved page, a role
+ * change) - then their start page. Order Managers start on the app launcher ("home"), everyone else on the first
+ * app they may open (normally the dashboard).
+ */
+function pageFor(user, picked, launcher) {
+  const start = launcher ? 'home' : appsFor(user)[0]?.id || 'settings';
+  if (picked === 'home') return launcher ? 'home' : start;
+  return canOpen(user, picked) ? picked : start;
+}
+
 function AppContent() {
-  const { isAuthenticated, loading } = useAuth();
-  const [activePage, setActivePage] = useState(() => {
+  const { user, isAuthenticated, loading } = useAuth();
+  const [pickedPage, setActivePage] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_ACTIVE_PAGE);
-      return saved && VALID_PAGES.has(saved) ? saved : 'dashboard';
+      return saved && VALID_PAGES.has(saved) ? saved : 'home';
     } catch {
-      return 'dashboard';
+      return 'home';
     }
   });
+  const launcher = usesLauncher(user);
+  const activePage = isAuthenticated ? pageFor(user, pickedPage, launcher) : pickedPage;
 
   useEffect(() => {
     try {
@@ -123,6 +140,8 @@ function AppContent() {
 
   const renderActivePage = () => {
     switch (activePage) {
+      case 'home':
+        return <AppLauncher apps={appsFor(user)} onOpen={setActivePage} />;
       case 'dashboard':
         return <DashboardPage onNavigate={setActivePage} />;
       case 'packing-scan':
@@ -148,12 +167,13 @@ function AppContent() {
     }
   };
 
+  const Layout = launcher ? LauncherLayout : AdminLayout;
   return (
-    <AdminLayout activePage={activePage} onSelectPage={setActivePage}>
+    <Layout activePage={activePage} onSelectPage={setActivePage}>
       <ErrorBoundary key={activePage}>
         {renderActivePage()}
       </ErrorBoundary>
-    </AdminLayout>
+    </Layout>
   );
 }
 

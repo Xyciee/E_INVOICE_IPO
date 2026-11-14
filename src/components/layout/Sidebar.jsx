@@ -1,20 +1,8 @@
 import React from 'react';
-import {
-  LayoutDashboard,
-  ScanLine,
-  ShoppingCart,
-  Receipt,
-  FileMinus,
-  Gauge,
-  CloudDownload,
-  PlugZap,
-  ChevronLeft,
-  ChevronRight,
-  LogOut,
-  X
-} from 'lucide-react';
+import { ChevronLeft, ChevronRight, LogOut, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm, useNotify } from '../../context/NotificationContext';
+import { appsFor } from '../../config/apps';
 
 export default function Sidebar({
   activePage,
@@ -46,74 +34,16 @@ export default function Sidebar({
     }
   };
 
-  const navGroups = [
-    {
-      group: 'Overview',
-      items: [
-        {
-          id: 'dashboard',
-          label: 'Dashboard',
-          icon: LayoutDashboard,
-          badge: null
-        }
-      ]
-    },
-    {
-      group: 'Transactions & Billing',
-      items: [
-        {
-          id: 'packing-scan',
-          label: 'Packing Scan',
-          icon: ScanLine,
-        },
-        {
-          id: 'orders',
-          label: 'Orders',
-          icon: ShoppingCart,
-          badge: null
-        },
-        {
-          id: 'invoices',
-          label: 'Invoices Tracker',
-          icon: Receipt,
-        },
-        {
-          id: 'credit-notes',
-          label: 'Credit Notes',
-          icon: FileMinus,
-        },
-        {
-          id: 'odoo-invoices',
-          label: 'Odoo Invoices',
-          icon: CloudDownload,
-          permission: 'view_odoo_invoices'
-        }
-      ]
-    },
-    {
-      group: 'Diagnostics & System',
-      items: [
-        {
-          id: 'api-speed-test',
-          label: 'API Speed Test',
-          icon: Gauge,
-          badge: null
-        },
-        {
-          id: 'odoo-settings',
-          label: 'Odoo Connection',
-          icon: PlugZap,
-          permission: 'manage_odoo_settings'
-        }
-      ]
+  // the apps this user may open (config/apps.js, by permission from /api/me), grouped as before
+  const navGroups = [];
+  appsFor(user).forEach((app) => {
+    let group = navGroups.find((g) => g.group === app.group);
+    if (!group) {
+      group = { group: app.group, items: [] };
+      navGroups.push(group);
     }
-  ]
-    // items with a `permission` are shown only to users who have it (from /api/me)
-    .map((group) => ({
-      ...group,
-      items: group.items.filter((item) => !item.permission || (user?.permissions || []).includes(item.permission))
-    }))
-    .filter((group) => group.items.length > 0);
+    group.items.push(app);
+  });
 
   const handleNavClick = (id) => {
     onSelectPage(id);
