@@ -6,7 +6,7 @@ import { appLabel } from '../../config/apps';
 import './launcher.css';
 
 /*
- * The simple layout for Order Managers (packers) and Accounting, laid out like an ERP home screen: a home page of big app tiles
+ * The simple layout for Order Managers (packers), Accounting and Executive, laid out like an ERP home screen: a home page of big app tiles
  * and one slim top bar (home button, the open app's name, theme, sign out). No sidebar. Each app is the same
  * screen the office roles use.
  */
