@@ -54,7 +54,7 @@ const PAGE_TAB_TITLES = {
 
 /*
  * The page actually shown: the one picked, unless the user's permissions do not open it (an old saved page, a role
- * change) - then their start page. Launcher users (Order Managers, and accounts with no app at all) start on the
+ * change) - then their start page. Launcher users (Order Managers, Accounting, and accounts with no app at all) start on the
  * app launcher ("home"), everyone else on the first app they may open (normally the dashboard). A sidebar user
  * always has at least one app: an account with none gets the launcher (usesLauncher).
  */
