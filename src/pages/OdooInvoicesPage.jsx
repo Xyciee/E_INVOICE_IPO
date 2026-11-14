@@ -18,7 +18,7 @@ import './odoo.css';
 /*
  * Odoo invoices (Executive, Accounting, IT): customer invoices and refunds the backend pulled from Odoo.
  *   GET  /api/odoo/invoices, /api/odoo/invoices/<id>   (view_odoo_invoices; ?raw=1 for IT only)
- *        list: ?company_id= picks one of `companies` (the companies chosen in Odoo Connection that have invoices)
+ *        list: ?company_id= picks one of `companies` (every company chosen in Odoo Connection); applies on pick
  *   GET  /api/odoo/sync-runs                           sync status, schedule, key expiry
  *   POST /api/odoo/sync                                Sync now (run_odoo_sync: Accounting, IT) — only queues
  *   GET  /api/odoo/sync-requests/<id>                  polled every 2 s until done / failed
@@ -153,12 +153,17 @@ export default function OdooInvoicesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const applyFilters = (e) => {
+  const applyFilters = (e, nextFilters = filters) => {
     e?.preventDefault();
-    setApplied(filters);
+    setFilters(nextFilters);
+    setApplied(nextFilters);
     setOffset(0);
-    loadList(filters, 0);
+    loadList(nextFilters, 0);
   };
+
+  // the Company filter switches which books are shown: it applies at once (with what else is in the form),
+  // the other filters wait for Search
+  const pickCompany = (e) => applyFilters(null, { ...filters, company_id: e.target.value });
 
   const resetFilters = () => {
     setFilters(EMPTY_FILTERS);
@@ -275,7 +280,7 @@ export default function OdooInvoicesPage() {
           {showCompanyFilter && (
             <label>
               Company
-              <select className="odoo-input" value={filters.company_id} onChange={(e) => setFilters({ ...filters, company_id: e.target.value })}>
+              <select className="odoo-input" value={filters.company_id} onChange={pickCompany} disabled={loading}>
                 <option value="">All companies</option>
                 {companies.map((c) => (
                   <option key={c.company_id} value={String(c.company_id)}>{companyLabel(c)}</option>
