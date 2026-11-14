@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronLeft, ChevronRight, LogOut, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, KeyRound, LogOut, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm, useNotify } from '../../context/NotificationContext';
 import { appsFor } from '../../config/apps';
@@ -181,6 +181,16 @@ export default function Sidebar({
             )}
           </div>
 
+          {!isCollapsed && (
+            <button
+              onClick={() => handleNavClick('my-password')}
+              className="sidebar-logout-btn"
+              title="Change password"
+              aria-label="Change password"
+            >
+              <KeyRound size={16} />
+            </button>
+          )}
           <button
             onClick={handleLogout}
             className="sidebar-logout-btn"

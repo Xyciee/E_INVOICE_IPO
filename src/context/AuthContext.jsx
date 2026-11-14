@@ -64,6 +64,13 @@ export function AuthProvider({ children }) {
     }
   };
 
+  /** Reads /api/me again (after a password change, so the must-change flag clears). */
+  const refreshUser = async () => {
+    const liveUser = await apiCheckSession();
+    if (liveUser) setUser(liveUser);
+    return liveUser;
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -71,7 +78,8 @@ export function AuthProvider({ children }) {
         isAuthenticated: !!user,
         loading,
         login,
-        logout
+        logout,
+        refreshUser
       }}
     >
       {children}

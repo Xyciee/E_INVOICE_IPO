@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { LayoutGrid, LogOut, Moon, Sun } from 'lucide-react';
+import { KeyRound, LayoutGrid, LogOut, Moon, Sun } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm, useNotify } from '../../context/NotificationContext';
 import { appLabel } from '../../config/apps';
@@ -49,7 +49,9 @@ export default function LauncherLayout({ activePage, onSelectPage, children }) {
           {atHome ? (
             <span className="launcher-brand"><span className="launcher-brand-accent">ISC E-</span>INVOICE</span>
           ) : (
-            <span className="launcher-app-name">{appLabel(activePage) || ''}</span>
+            <span className="launcher-app-name">
+              {appLabel(activePage) || (activePage === 'my-password' ? 'Change password' : '')}
+            </span>
           )}
         </div>
         <div className="launcher-bar-right">
@@ -61,6 +63,10 @@ export default function LauncherLayout({ activePage, onSelectPage, children }) {
             <span className="launcher-avatar">{user?.avatar || '?'}</span>
             <span className="launcher-user-name">{user?.name}</span>
           </span>
+          <button type="button" className="launcher-icon-btn" onClick={() => onSelectPage('my-password')}
+            title="Change password" aria-label="Change password">
+            <KeyRound size={18} />
+          </button>
           <button type="button" className="launcher-icon-btn" onClick={handleLogout} title="Sign out" aria-label="Sign out">
             <LogOut size={18} />
           </button>
@@ -83,9 +89,15 @@ export function AppLauncher({ apps, onOpen }) {
 
   return (
     <div className="launcher-grid-wrap">
-      <p className="launcher-greeting">{greeting}{user?.name ? `, ${user.name}` : ''}. What do you want to do?</p>
+      <p className="launcher-greeting">
+        {greeting}{user?.name ? `, ${user.name}` : ''}.{apps.length > 0 ? ' What do you want to do?' : ''}
+      </p>
       {apps.length === 0 ? (
-        <p className="launcher-empty">No apps are open to your account yet. Ask IT to check your role.</p>
+        <div className="launcher-empty">
+          <p className="launcher-empty-title">Your account has no role yet, so there is nothing to open.</p>
+          <p>Ask IT to give <strong>{user?.username}</strong> a role (for packers: Order Manager).
+            Then sign out and sign in again.</p>
+        </div>
       ) : (
         <ul className="launcher-grid">
           {apps.map((app) => {
