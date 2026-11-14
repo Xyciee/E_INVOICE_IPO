@@ -49,15 +49,16 @@ export function appLabel(pageId) {
 }
 
 /*
- * Order Managers (the packers) get the simple app launcher instead of the sidebar. Someone who also has an office
- * role (Executive, Accounting, IT) keeps the full layout. This is a choice of layout only: what each person may see
- * or do still comes from their permissions.
+ * Order Managers (the packers) and Accounting staff get the simple app launcher instead of the sidebar (2026-11-14:
+ * Accounting added). Someone who also has a sidebar role (Executive, IT) keeps the full layout. This is a choice of
+ * layout only: which apps each person sees, and what they may do, still comes from their permissions.
  * An account that may open no app at all (no role yet) also gets the launcher, which then says to ask IT.
  */
-const OFFICE_ROLES = ['executive', 'accounting', 'it'];
+const LAUNCHER_ROLES = ['order_manager', 'accounting'];
+const SIDEBAR_ROLES = ['executive', 'it'];
 
 export function usesLauncher(user) {
   const roles = (user?.roles || []).map((r) => String(r).toLowerCase());
   if (appsFor(user).length === 0) return true;
-  return roles.includes('order_manager') && !roles.some((r) => OFFICE_ROLES.includes(r));
+  return roles.some((r) => LAUNCHER_ROLES.includes(r)) && !roles.some((r) => SIDEBAR_ROLES.includes(r));
 }
