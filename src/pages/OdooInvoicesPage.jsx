@@ -45,6 +45,11 @@ function minutesText(minutes) {
   return hours < 48 ? `${hours} h ago` : `${Math.floor(hours / 24)} days ago`;
 }
 
+/** A company of `companies` (GET /api/odoo/invoices): its name, known only once it has synced invoices. */
+function companyLabel(c) {
+  return c.company_name || `Company ${c.company_id} (nothing synced yet)`;
+}
+
 function typeLabel(moveType) {
   return moveType === 'out_refund' ? 'Refund' : 'Invoice';
 }
@@ -190,8 +195,10 @@ export default function OdooInvoicesPage() {
   const banner = (canSync || isIT) && status ? keyBanner(status.api_key_status, status.api_key_days_left,
     status.api_key_expires_on) : null;
   const notSetUp = status && !status.configured;
-  // one company only: no filter and no column (they would say the same thing on every row)
-  const multiCompany = companies.length > 1 || Boolean(filters.company_id);
+  // the filter shows whenever the backend lists companies (every company chosen in Odoo Connection, also one
+  // with nothing synced yet); the column only when there is more than one (else it says the same on every row)
+  const showCompanyFilter = companies.length > 0 || Boolean(filters.company_id);
+  const multiCompany = companies.length > 1;
   const columnCount = multiCompany ? 11 : 10;
 
   return (
@@ -265,13 +272,13 @@ export default function OdooInvoicesPage() {
 
       <div className="card-section">
         <form className="odoo-filters" onSubmit={applyFilters}>
-          {multiCompany && (
+          {showCompanyFilter && (
             <label>
               Company
               <select className="odoo-input" value={filters.company_id} onChange={(e) => setFilters({ ...filters, company_id: e.target.value })}>
                 <option value="">All companies</option>
                 {companies.map((c) => (
-                  <option key={c.company_id} value={String(c.company_id)}>{c.company_name || `Company ${c.company_id}`}</option>
+                  <option key={c.company_id} value={String(c.company_id)}>{companyLabel(c)}</option>
                 ))}
               </select>
             </label>
@@ -380,7 +387,8 @@ export default function OdooInvoicesPage() {
 
       {detailId !== null && <OdooInvoiceDrawer id={detailId} isIT={isIT} onClose={() => setDetailId(null)} />}
       {syncDialog && (
-        <SyncNowDialog startDate={status?.sync_start_date} onStart={handleSyncNow} onClose={() => setSyncDialog(false)} />
+        <SyncNowDialog startDate={status?.sync_start_date} companies={companies} initialCompany={applied.company_id}
+          onStart={handleSyncNow} onClose={() => setSyncDialog(false)} />
       )}
     </div>
   );
@@ -561,7 +569,7 @@ function OdooInvoiceDrawer({ id, isIT, onClose }) {
 const SYNC_CHOICES = [
   { value: 'changes', icon: Zap, label: 'New changes', help: 'What was created or changed in Odoo since the last sync. Same as the automatic sync.' },
   { value: 'all', icon: Layers, label: 'Sync all', help: 'Read every invoice again from the sync start date. Takes longer.' },
-  { value: 'custom', icon: ListFilter, label: 'Custom selection', help: 'Pick a date range or numbers, see what Odoo has, then choose what to upload.' }
+  { value: 'custom', icon: ListFilter, label: 'Custom selection', help: 'Pick a company, a date range or numbers, see what Odoo has, then choose what to upload.' }
 ];
 
 const PREVIEW_STATUS = {
@@ -571,8 +579,10 @@ const PREVIEW_STATUS = {
   not_posted: { label: 'Not posted', tone: 'bad', pick: false, disabled: true, hint: 'Draft or cancelled before posting: not stored' }
 };
 
-function SyncNowDialog({ startDate, onStart, onClose }) {
+function SyncNowDialog({ startDate, companies = [], initialCompany = '', onStart, onClose }) {
   const [mode, setMode] = useState('changes');
+  // custom only: a run that moves the sync cursor (new changes, sync all) always reads every chosen company
+  const [companyId, setCompanyId] = useState(initialCompany || '');
   const [invoiceFrom, setInvoiceFrom] = useState('');
   const [invoiceTo, setInvoiceTo] = useState('');
   const [numbers, setNumbers] = useState('');
@@ -603,6 +613,7 @@ function SyncNowDialog({ startDate, onStart, onClose }) {
 
   const findInvoices = async () => {
     const body = {};
+    if (companyId) body.company_ids = [Number(companyId)];
     if (invoiceFrom) body.invoice_from = invoiceFrom;
     if (invoiceTo) body.invoice_to = invoiceTo;
     const list = numberList();
@@ -639,6 +650,7 @@ function SyncNowDialog({ startDate, onStart, onClose }) {
         return;
       }
       choice = { mode: 'custom', move_ids: [...picked] };
+      if (companyId) choice.company_ids = [Number(companyId)];
     }
     setBusy('start');
     setErrors({});
@@ -687,6 +699,18 @@ function SyncNowDialog({ startDate, onStart, onClose }) {
           {mode === 'custom' && (
             <div className="odoo-panel">
               <div className="odoo-panel-grid">
+                {companies.length > 0 && (
+                  <label className="odoo-field odoo-panel-company">
+                    <span>Company</span>
+                    <select className="odoo-input" value={companyId} onChange={editSelection(setCompanyId)}>
+                      <option value="">All companies</option>
+                      {companies.map((c) => (
+                        <option key={c.company_id} value={String(c.company_id)}>{companyLabel(c)}</option>
+                      ))}
+                    </select>
+                    {errors.company_ids && <span className="odoo-field-error">{errors.company_ids}</span>}
+                  </label>
+                )}
                 <label className="odoo-field">
                   <span>Invoice date from</span>
                   <input type="date" className="odoo-input" value={invoiceFrom} min={startDate || undefined}
@@ -708,7 +732,8 @@ function SyncNowDialog({ startDate, onStart, onClose }) {
               </div>
               <div className="odoo-panel-actions">
                 <span className="odoo-field-help">
-                  {preview ? 'Changed the dates or numbers? Search again.' : 'Odoo is only read here. You choose what to upload in the next step.'}
+                  {preview ? 'Changed the company, dates or numbers? Search again.'
+                    : 'Odoo is only read here. You choose what to upload in the next step. A company alone finds all its invoices.'}
                 </span>
                 {preview && (
                   <button type="button" className="btn btn-outline" onClick={findInvoices} disabled={Boolean(busy)}>
