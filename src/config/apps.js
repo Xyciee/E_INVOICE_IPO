@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, ScanLine, ShoppingCart, Receipt, FileMinus, Gauge, CloudDownload, PlugZap
+  LayoutDashboard, ScanLine, ShoppingCart, Receipt, FileMinus, Gauge, CloudDownload, PlugZap, Users
 } from 'lucide-react';
 
 /*
@@ -21,6 +21,8 @@ export const APPS = [
     permission: 'view_credit_worklist', hint: 'Cancelled or returned orders that were already invoiced.' },
   { id: 'odoo-invoices', label: 'Odoo Invoices', group: 'Transactions & Billing', icon: CloudDownload, color: '#0ea5e9',
     permission: 'view_odoo_invoices', hint: 'Invoices posted in Odoo, read into this system.' },
+  { id: 'users', label: 'Users', group: 'Diagnostics & System', icon: Users, color: '#6366f1',
+    permission: 'manage_users', hint: 'For IT: accounts, roles, passwords.' },
   { id: 'api-speed-test', label: 'API Speed Test', group: 'Diagnostics & System', icon: Gauge, color: '#64748b',
     permission: 'manage_users', hint: 'For IT: how fast the system answers.' },
   { id: 'odoo-settings', label: 'Odoo Connection', group: 'Diagnostics & System', icon: PlugZap, color: '#0f766e',
@@ -29,10 +31,13 @@ export const APPS = [
 
 const BY_ID = Object.fromEntries(APPS.map((app) => [app.id, app]));
 
-/** Screens outside APPS (settings, the API tester) are not in any menu and keep working as before. */
+// screens that are in no menu (reached only from a saved page or a link): IT only
+const HIDDEN_PAGES = { settings: 'manage_users', 'api-tester': 'manage_users' };
+
+/** Whether the user's permissions open this screen ("home", the launcher, is open to everyone). */
 export function canOpen(user, pageId) {
-  const app = BY_ID[pageId];
-  return !app || !app.permission || (user?.permissions || []).includes(app.permission);
+  const needed = BY_ID[pageId]?.permission ?? HIDDEN_PAGES[pageId];
+  return !needed || (user?.permissions || []).includes(needed);
 }
 
 export function appsFor(user) {
@@ -47,10 +52,12 @@ export function appLabel(pageId) {
  * Order Managers (the packers) get the simple app launcher instead of the sidebar. Someone who also has an office
  * role (Executive, Accounting, IT) keeps the full layout. This is a choice of layout only: what each person may see
  * or do still comes from their permissions.
+ * An account that may open no app at all (no role yet) also gets the launcher, which then says to ask IT.
  */
 const OFFICE_ROLES = ['executive', 'accounting', 'it'];
 
 export function usesLauncher(user) {
   const roles = (user?.roles || []).map((r) => String(r).toLowerCase());
+  if (appsFor(user).length === 0) return true;
   return roles.includes('order_manager') && !roles.some((r) => OFFICE_ROLES.includes(r));
 }

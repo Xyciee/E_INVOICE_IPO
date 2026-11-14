@@ -1,0 +1,102 @@
+/* Users page (UsersPage.jsx). Most of the look comes from odoo.css (modal, inputs, chips, table). */
+
+.users-chip-gap {
+  margin-left: 6px;
+}
+
+.users-role {
+  display: inline-block;
+  margin: 2px 4px 2px 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background-color: var(--primary-light);
+  color: var(--primary-hover);
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.users-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 16px;
+}
+
+.users-roles {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.users-roles legend {
+  padding: 0 6px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.users-role-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.users-role-option input {
+  margin-top: 3px;
+}
+
+.users-role-option > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.users-role-option.selected {
+  border-color: var(--primary);
+  background-color: var(--primary-light);
+}
+
+.users-footer {
+  flex-wrap: wrap;
+}
+
+.users-footer-left {
+  display: flex;
+  gap: 8px;
+  margin-right: auto;
+  flex-wrap: wrap;
+}
+
+.users-danger {
+  color: var(--danger-hover);
+}
+
+.users-password-modal {
+  width: min(460px, 100%);
+}
+
+.users-password {
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  background-color: var(--bg-app);
+  border: 1px dashed var(--border-light);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: center;
+  word-break: break-all;
+  user-select: all;
+}
+
+@media (max-width: 560px) {
+  .users-form { grid-template-columns: 1fr; }
+}

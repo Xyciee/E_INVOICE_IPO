@@ -15,6 +15,8 @@ import ApiSpeedTestPage from './pages/ApiSpeedTestPage';
 import CreditNotesPage from './pages/CreditNotesPage';
 import OdooInvoicesPage from './pages/OdooInvoicesPage';
 import OdooSettingsPage from './pages/OdooSettingsPage';
+import UsersPage from './pages/UsersPage';
+import ChangePasswordPage, { RequiredPasswordChange } from './pages/ChangePasswordPage';
 import ErrorBoundary from './components/feedback/ErrorBoundary';
 
 const STORAGE_KEY_ACTIVE_PAGE = 'invoicehub_active_page';
@@ -29,7 +31,9 @@ const VALID_PAGES = new Set([
   'api-tester',
   'api-speed-test',
   'odoo-invoices',
-  'odoo-settings'
+  'odoo-settings',
+  'users',
+  'my-password'
 ]);
 
 const PAGE_TAB_TITLES = {
@@ -43,17 +47,20 @@ const PAGE_TAB_TITLES = {
   'api-tester': 'API Tester',
   'api-speed-test': 'API Speed Test',
   'odoo-invoices': 'Odoo Invoices',
-  'odoo-settings': 'Odoo Connection'
+  'odoo-settings': 'Odoo Connection',
+  users: 'Users',
+  'my-password': 'Change password'
 };
 
 /*
  * The page actually shown: the one picked, unless the user's permissions do not open it (an old saved page, a role
- * change) - then their start page. Order Managers start on the app launcher ("home"), everyone else on the first
- * app they may open (normally the dashboard).
+ * change) - then their start page. Launcher users (Order Managers, and accounts with no app at all) start on the
+ * app launcher ("home"), everyone else on the first app they may open (normally the dashboard). A sidebar user
+ * always has at least one app: an account with none gets the launcher (usesLauncher).
  */
 function pageFor(user, picked, launcher) {
-  const start = launcher ? 'home' : appsFor(user)[0]?.id || 'settings';
-  if (picked === 'home') return launcher ? 'home' : start;
+  const start = launcher ? 'home' : appsFor(user)[0].id;
+  if (picked === 'home') return start;
   return canOpen(user, picked) ? picked : start;
 }
 
@@ -138,6 +145,11 @@ function AppContent() {
     return <LoginPage />;
   }
 
+  // a temporary password (new account, reset by IT): the backend refuses every screen until it is changed
+  if (user?.mustChangePassword) {
+    return <RequiredPasswordChange />;
+  }
+
   const renderActivePage = () => {
     switch (activePage) {
       case 'home':
@@ -162,6 +174,10 @@ function AppContent() {
         return <OdooInvoicesPage />;
       case 'odoo-settings':
         return <OdooSettingsPage />;
+      case 'users':
+        return <UsersPage />;
+      case 'my-password':
+        return <ChangePasswordPage />;
       default:
         return <DashboardPage onNavigate={setActivePage} />;
     }

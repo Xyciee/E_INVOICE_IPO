@@ -9,6 +9,7 @@ import {
   Clock,
   ExternalLink
 } from 'lucide-react';
+import { appLabel } from '../../config/apps';
 
 export default function Header({
   activePage,
@@ -50,13 +51,10 @@ export default function Header({
           <span className="breadcrumb-root">Portal</span>
           <ChevronRight size={14} className="breadcrumb-separator" />
           <span className="breadcrumb-active">
-            {activePage === 'credit-notes'
-              ? 'Credit Notes'
-              : activePage === 'api-tester'
-              ? 'API Tester'
-              : activePage === 'api-speed-test'
-              ? 'API Speed Test'
-              : activePage.charAt(0).toUpperCase() + activePage.slice(1)}
+            {appLabel(activePage) ||
+              (activePage === 'my-password' ? 'Change password'
+                : activePage === 'api-tester' ? 'API Tester'
+                  : activePage.charAt(0).toUpperCase() + activePage.slice(1))}
           </span>
         </div>
       </div>
