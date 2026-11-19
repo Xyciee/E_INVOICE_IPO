@@ -1019,6 +1019,11 @@ export function normalizeDocumentRecord(raw) {
         : raw.is_current !== undefined
           ? Boolean(raw.is_current)
           : !doc.replaced_by && !raw.replaced_by,
+    // Odoo e-invoices and credit notes (platform odoo) carry the real buyer and the Odoo number as a reference
+    isOdoo: String(doc.platform || raw.platform || '').toLowerCase() === 'odoo',
+    buyerAddress: doc.buyer_address || null,
+    buyerBranchCode: doc.buyer_branch_code || null,
+    referenceLines: Array.isArray(raw.odoo_reference?.lines) ? raw.odoo_reference.lines : [],
     raw: doc
   };
 }

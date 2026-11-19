@@ -55,6 +55,9 @@ export default function PlatformBadge({
     if (!resolvedStatus) {
       resolvedStatus = 'PACKED';
     }
+  } else if (lower === 'odoo') {
+    // Odoo (wholesale) e-invoices and credit notes, 2026-11-19
+    displayLabel = 'Odoo';
   }
 
   return (

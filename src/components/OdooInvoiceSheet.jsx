@@ -33,6 +33,7 @@ export default function OdooInvoiceSheet({ invoice }) {
         <div className="oi-title-box">
           <div className="oi-title"><span className="oi-title-small">{smallTitle}</span> <span className="oi-title-big">{bigTitle}</span></div>
           <div className="oi-number"><span className="oi-number-sign">№</span> {invoice.number}</div>
+          {(invoice.references || []).map((line) => <div key={line} className="oi-reference">{line}</div>)}
         </div>
       </header>
 

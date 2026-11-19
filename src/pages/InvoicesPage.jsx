@@ -1443,6 +1443,10 @@ export default function InvoicesPage() {
                   orderId={reprintModalDoc.orderId || '—'}
                   buyerName={reprintModalDoc.buyerName || 'Marketplace Buyer'}
                   buyerTin={reprintModalDoc.buyerTin || '—'}
+                  showBuyer={Boolean(reprintModalDoc.isOdoo)}
+                  buyerAddress={reprintModalDoc.buyerAddress}
+                  buyerBranchCode={reprintModalDoc.buyerBranchCode}
+                  referenceLines={reprintModalDoc.referenceLines || []}
                   orderStatus={reprintModalDoc.status || 'PAID'}
                   lines={getDisplayLines(reprintModalDoc)}
                   discountAmount={reprintModalDoc.discountAmount || '0.00'}
@@ -1470,6 +1474,10 @@ export default function InvoicesPage() {
             orderId={printableDoc.orderId || '—'}
             buyerName={printableDoc.buyerName || 'Marketplace Buyer'}
             buyerTin={printableDoc.buyerTin || '—'}
+            showBuyer={Boolean(printableDoc.isOdoo)}
+            buyerAddress={printableDoc.buyerAddress}
+            buyerBranchCode={printableDoc.buyerBranchCode}
+            referenceLines={printableDoc.referenceLines || []}
             orderStatus={printableDoc.status || 'PAID'}
             lines={getDisplayLines(printableDoc)}
             discountAmount={printableDoc.discountAmount || '0.00'}
