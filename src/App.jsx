@@ -66,7 +66,7 @@ function pageFor(user, picked, launcher) {
 
 function AppContent() {
   const { user, isAuthenticated, loading } = useAuth();
-  const [pickedPage, setActivePage] = useState(() => {
+  const [pickedPage, setPickedPage] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_ACTIVE_PAGE);
       return saved && VALID_PAGES.has(saved) ? saved : 'home';
@@ -74,6 +74,13 @@ function AppContent() {
       return 'home';
     }
   });
+  // What one screen asks the next to show (e.g. Odoo Invoices → Credit Notes on one refund). Used once by the page
+  // it was sent to; opening any page from the menu clears it. Never saved.
+  const [pageHint, setPageHint] = useState(null);
+  const setActivePage = (page, hint = null) => {
+    setPageHint(hint);
+    setPickedPage(page);
+  };
   const launcher = usesLauncher(user);
   const activePage = isAuthenticated ? pageFor(user, pickedPage, launcher) : pickedPage;
 
@@ -163,7 +170,7 @@ function AppContent() {
       case 'invoices':
         return <InvoicesPage />;
       case 'credit-notes':
-        return <CreditNotesPage e />;
+        return <CreditNotesPage hint={pageHint} />;
       case 'settings':
         return <SettingsPage />;
       case 'api-tester':
@@ -171,7 +178,7 @@ function AppContent() {
       case 'api-speed-test':
         return <ApiSpeedTestPage />;
       case 'odoo-invoices':
-        return <OdooInvoicesPage />;
+        return <OdooInvoicesPage onNavigate={setActivePage} />;
       case 'odoo-settings':
         return <OdooSettingsPage />;
       case 'users':
