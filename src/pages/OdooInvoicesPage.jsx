@@ -10,6 +10,7 @@ import {
 } from '../services/odooService';
 import { fetchDocumentDetails } from '../services/scanService';
 import OdooInvoiceSheet from '../components/OdooInvoiceSheet';
+import OdooCreditNotesTab from '../components/OdooCreditNotesTab';
 import {
   addressOf, businessAddress, buildOdooInvoice, ADDRESS_SOURCES, ODOO_INVOICE_SHEET_CSS
 } from '../services/odooInvoicePrint';
@@ -93,12 +94,18 @@ function EinvoiceCell({ row, available }) {
   );
 }
 
-export default function OdooInvoicesPage() {
+export default function OdooInvoicesPage({ onNavigate }) {
   const { user } = useAuth();
   const notify = useNotify();
   const permissions = user?.permissions || [];
   const canSync = permissions.includes('run_odoo_sync');
   const isIT = permissions.includes('manage_odoo_settings');
+  const canWorklist = permissions.includes('view_credit_worklist');
+  const canIssueCredit = permissions.includes('issue_credit_note');
+  const canSeeCredits = permissions.includes('view_documents');
+
+  const [tab, setTab] = useState('invoices');  // 'invoices' | 'credit-notes'
+  const [creditReload, setCreditReload] = useState(0);  // bumped by Refresh / a finished sync: the tab reloads
 
   const [status, setStatus] = useState(null);
   const [rows, setRows] = useState([]);
@@ -161,6 +168,7 @@ export default function OdooInvoicesPage() {
         }
         loadStatus();
         loadList(listArgs.current.filters, listArgs.current.offset);
+        setCreditReload((n) => n + 1);
       } else {
         pollRequest(id);
       }
@@ -248,7 +256,7 @@ export default function OdooInvoicesPage() {
           </p>
         </div>
         <div className="page-actions">
-          <button className="btn btn-outline" onClick={() => { loadStatus(); loadList(applied, offset); }} disabled={loading}>
+          <button className="btn btn-outline" onClick={() => { loadStatus(); loadList(applied, offset); setCreditReload((n) => n + 1); }} disabled={loading}>
             <RefreshCw size={16} className={loading ? 'odoo-spin' : ''} /> Refresh
           </button>
           {canSync && (
@@ -307,7 +315,40 @@ export default function OdooInvoicesPage() {
         </div>
       </div>
 
-      <div className="card-section">
+      {(canSeeCredits || canWorklist) && (
+        <div className="odoo-tabs" role="tablist">
+          <button type="button" role="tab" aria-selected={tab === 'invoices'}
+            className={`odoo-tab ${tab === 'invoices' ? 'active' : ''}`} onClick={() => setTab('invoices')}>
+            Invoices &amp; refunds
+          </button>
+          <button type="button" role="tab" aria-selected={tab === 'credit-notes'}
+            className={`odoo-tab ${tab === 'credit-notes' ? 'active' : ''}`} onClick={() => setTab('credit-notes')}>
+            Credit notes
+          </button>
+        </div>
+      )}
+
+      {tab === 'credit-notes' && (
+        <div className="card-section">
+          {showCompanyFilter && (
+            <div className="odoo-filters">
+              <label>
+                Company
+                <select className="odoo-input" value={filters.company_id} onChange={pickCompany}>
+                  <option value="">All companies</option>
+                  {companies.map((c) => (
+                    <option key={c.company_id} value={String(c.company_id)}>{companyLabel(c)}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
+          <OdooCreditNotesTab companyId={applied.company_id} companies={companies} canWorklist={canWorklist}
+            canIssue={canIssueCredit} onNavigate={onNavigate} reloadKey={creditReload} />
+        </div>
+      )}
+
+      <div className="card-section" hidden={tab !== 'invoices'}>
         <form className="odoo-filters" onSubmit={applyFilters}>
           {showCompanyFilter && (
             <label>

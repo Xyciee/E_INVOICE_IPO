@@ -520,3 +520,29 @@
   background: #fff;
   box-shadow: 0 4px 18px rgba(15, 23, 42, 0.18);
 }
+
+/* Tabs: Invoices & refunds | Credit notes (2026-11-19) */
+.card-section[hidden] { display: none !important; }
+.odoo-tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border-light); }
+.odoo-tab {
+  padding: 9px 16px; border: none; background: transparent; cursor: pointer; font-size: 0.9rem; font-weight: 600;
+  color: var(--text-muted); border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.odoo-tab:hover { color: var(--text-main); }
+.odoo-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+/* Credit notes tab */
+.odoo-cn { display: flex; flex-direction: column; gap: 22px; }
+.odoo-cn-summary { display: flex; flex-wrap: wrap; gap: 12px 32px; }
+.odoo-cn-count { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.odoo-cn-empty {
+  display: flex; align-items: center; gap: 8px; padding: 18px; font-size: 0.875rem; color: var(--text-muted);
+  border: 1px dashed var(--border-light); border-radius: var(--radius-md);
+}
+.odoo-cn-table tbody tr { cursor: default; }
+.odoo-cn-table tr.odoo-cn-info td { color: var(--text-muted); background: var(--bg-app); }
+.odoo-cn-why { max-width: 320px; white-space: normal; font-size: 0.85rem; line-height: 1.35; }
+.odoo-cn-why .odoo-chip { white-space: normal; }
+.odoo-cn-action { text-align: right; white-space: nowrap; }
+.odoo-cn-btn { padding: 5px 10px; font-size: 0.78rem; }
+.odoo-cn-table .odoo-einvoice-number { white-space: nowrap; }

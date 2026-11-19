@@ -75,7 +75,9 @@ const PLATFORM_OPTIONS = [
   { value: '', label: 'All Platforms' },
   { value: 'shopee', label: 'Shopee' },
   { value: 'lazada', label: 'Lazada' },
-  { value: 'tiktok', label: 'TikTok Shop' }
+  { value: 'tiktok', label: 'TikTok Shop' },
+  // Odoo e-invoices (platform odoo); the register accepts it since 2026-11-19
+  { value: 'odoo', label: 'Odoo' }
 ];
 
 const ISSUED_PAGE_SIZE = 100;
@@ -228,7 +230,12 @@ function modeForCandidate(candidate) {
 
 // --- page ---------------------------------------------------------------------------------------------------
 
-export default function CreditNotesPage() {
+/**
+ * hint (optional, from another screen, used once): {tab?, source?, platform?, search?, open?: {invoice_id,
+ * odoo_refund_id}}. Odoo Invoices → Credit notes tab sends it: the work list opens filtered to that row, and `open`
+ * opens its issue form (or its two-choice review) as soon as the work list has loaded.
+ */
+export default function CreditNotesPage({ hint = null }) {
   const { user } = useAuth();
   const notify = useNotify();
   const confirm = useConfirm();
@@ -237,10 +244,11 @@ export default function CreditNotesPage() {
   const canIssue = permissions.has('issue_credit_note');
   const canViewEis = permissions.has('view_eis_json');
 
-  const [activeTab, setActiveTab] = useState('candidates'); // 'candidates' | 'issued' | 'balance'
-  const [searchQuery, setSearchQuery] = useState('');
-  const [platformFilter, setPlatformFilter] = useState('');
-  const [sourceFilter, setSourceFilter] = useState('');  // work list only: '' | marketplace | odoo
+  const [activeTab, setActiveTab] = useState(hint?.tab || 'candidates'); // 'candidates' | 'issued' | 'balance'
+  const [searchQuery, setSearchQuery] = useState(hint?.search || '');
+  const [platformFilter, setPlatformFilter] = useState(hint?.platform || '');
+  const [sourceFilter, setSourceFilter] = useState(hint?.source || '');  // work list only: '' | marketplace | odoo
+  const pendingOpen = useRef(hint?.open || null);  // the row to open once the work list is loaded
 
   // Work list
   const [candidates, setCandidates] = useState([]);
@@ -386,7 +394,7 @@ export default function CreditNotesPage() {
           [c.invoice_number, c.platform_order_id, c.explanation, c.order_status_now, c.odoo_invoice_name,
             c.odoo_refund_name]
             .some((v) => String(v || '').toLowerCase().includes(term));
-        // the platform filter is about the marketplaces: it leaves Odoo rows to the source filter
+        // Odoo rows have platform 'odoo', so the Odoo platform choice and the Odoo source pick the same rows
         const matchesPlatform = !platformFilter || c.platform === platformFilter;
         const matchesSource = !sourceFilter || (c.source || 'marketplace') === sourceFilter;
         return matchesSearch && matchesPlatform && matchesSource;
@@ -481,6 +489,27 @@ export default function CreditNotesPage() {
     });
     if (issueIt) handleOpenIssueCandidate({ ...candidate, suggested_lines: null });
   };
+
+  // Sent here from Odoo Invoices with one row to open: open it once the work list is in (only if it can be acted on
+  // and this user may issue; otherwise the filtered list shows the row and why).
+  useEffect(() => {
+    const want = pendingOpen.current;
+    if (!want || loadingCandidates) return;
+    pendingOpen.current = null;
+    const row = candidates.find((c) => c.source === 'odoo'
+      && (c.invoice_id ?? null) === (want.invoice_id ?? null)
+      && (c.odoo_refund_id ?? null) === (want.odoo_refund_id ?? null));
+    if (!row) {
+      notify.info('Not on the work list any more', 'It may have been issued already, or changed in Odoo since. '
+        + 'The list below is filtered to it.');
+      return;
+    }
+    if (!canIssue || !isActionable(row)) return;
+    if (row.suggested_action === 'review_odoo_change') handleReviewOdooChange(row);
+    else handleOpenIssueCandidate(row);
+    // runs when the work list finishes loading; the handlers are recreated each render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadingCandidates, candidates]);
 
   const handleOpenManualIssue = () => {
     resetModal();
