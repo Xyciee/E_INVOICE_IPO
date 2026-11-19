@@ -13,8 +13,16 @@ export default function WaybillTicket({
   vatAmount,
   vatExemptSales,
   zeroRatedSales,
-  totalAmount
+  totalAmount,
+  // Odoo e-invoices / credit notes only: the real buyer and the Odoo number(s) as reference lines
+  showBuyer = false,
+  buyerName,
+  buyerTin,
+  buyerBranchCode,
+  buyerAddress,
+  referenceLines = []
 }) {
+  const tinBranch = [buyerTin, buyerBranchCode].filter((v) => v && v !== '—').join(' - ');
   return (
     <div className="waybill-sheet">
       <div className="waybill-top-bar">
@@ -51,7 +59,31 @@ export default function WaybillTicket({
             <div className="waybill-cell-val">{issuedAt}</div>
           </div>
         )}
+        {referenceLines.length > 0 && (
+          <div className="waybill-meta-cell full-row">
+            {referenceLines.map((line) => (
+              <div key={line} className="waybill-cell-val" style={{ fontFamily: 'monospace' }}>{line}</div>
+            ))}
+          </div>
+        )}
       </div>
+
+      {showBuyer && (
+        <div className="waybill-meta-grid">
+          <div className="waybill-meta-cell full-row">
+            <div className="waybill-cell-label">Sold To</div>
+            <div className="waybill-cell-val">{buyerName || '—'}</div>
+          </div>
+          <div className="waybill-meta-cell full-row">
+            <div className="waybill-cell-label">Address</div>
+            <div className="waybill-cell-val">{buyerAddress || '—'}</div>
+          </div>
+          <div className="waybill-meta-cell full-row">
+            <div className="waybill-cell-label">TIN - Branch</div>
+            <div className="waybill-cell-val" style={{ fontFamily: 'monospace' }}>{tinBranch || '—'}</div>
+          </div>
+        </div>
+      )}
 
       <div className="waybill-items-box">
         <div className="waybill-section-tag">

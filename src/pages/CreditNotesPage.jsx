@@ -22,7 +22,8 @@ import './creditNotes.css';
 
 /*
  * Credit notes (accounting). Everything on this page comes from the server (2026-11-09):
- *   GET  /api/credit-notes/candidates   work list (view_credit_worklist)
+ *   GET  /api/credit-notes/candidates   work list (view_credit_worklist): marketplace and Odoo rows (source,
+ *                                       actionable; Odoo rows also name the Odoo invoice / refund, 2026-11-19)
  *   GET  /api/credit-notes              issued credit notes, the register (view_documents)
  *   GET  /api/invoices/<id>/balance     what is still open per invoice line (view_credit_worklist)
  *   POST /api/credit-notes              issue (issue_credit_note: Accounting and IT only)
@@ -44,8 +45,25 @@ const CORRECTION_CODES = [
 const SUGGESTED_ACTIONS = {
   credit_all: 'Credit everything still open',
   credit_lines: 'Credit the returned units',
-  review_refund: 'Check the refund amount per line'
+  review_refund: 'Check the refund amount per line',
+  // Odoo rows (2026-11-19)
+  review_odoo_change: 'Changed in Odoo after its e-invoice: fix it in Odoo, or credit the open amount',
+  original_not_issued: 'Waits for the invoice\'s e-invoice (information only)',
+  original_not_mirrored: 'Invoice from before the Odoo sync start: nothing to credit (information only)',
+  refund_changed_after_credit: 'Odoo refund changed after our credit note; the credit note stands (information only)'
 };
+
+// Work-list source (GET /api/credit-notes/candidates row.source): e-commerce or Odoo (wholesale) invoices.
+const SOURCE_OPTIONS = [
+  { value: '', label: 'All sources' },
+  { value: 'marketplace', label: 'Marketplace' },
+  { value: 'odoo', label: 'Odoo' }
+];
+const SOURCE_LABELS = { marketplace: 'Marketplace', odoo: 'Odoo' };
+
+/** A work-list row that can be acted on (Odoo information rows have actionable: false and get no button). */
+const isActionable = (c) => c.actionable !== false;
+const candidateKey = (c, idx) => `${c.source || 'marketplace'}-${c.invoice_id ?? 'none'}-${c.odoo_refund_id ?? ''}-${idx}`;
 
 const CREDIT_MODES = [
   { value: 'all', label: 'Everything still open on the invoice' },
@@ -222,6 +240,7 @@ export default function CreditNotesPage() {
   const [activeTab, setActiveTab] = useState('candidates'); // 'candidates' | 'issued' | 'balance'
   const [searchQuery, setSearchQuery] = useState('');
   const [platformFilter, setPlatformFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');  // work list only: '' | marketplace | odoo
 
   // Work list
   const [candidates, setCandidates] = useState([]);
@@ -364,13 +383,18 @@ export default function CreditNotesPage() {
       candidates.filter((c) => {
         const matchesSearch =
           !term ||
-          [c.invoice_number, c.platform_order_id, c.explanation, c.order_status_now]
+          [c.invoice_number, c.platform_order_id, c.explanation, c.order_status_now, c.odoo_invoice_name,
+            c.odoo_refund_name]
             .some((v) => String(v || '').toLowerCase().includes(term));
+        // the platform filter is about the marketplaces: it leaves Odoo rows to the source filter
         const matchesPlatform = !platformFilter || c.platform === platformFilter;
-        return matchesSearch && matchesPlatform;
+        const matchesSource = !sourceFilter || (c.source || 'marketplace') === sourceFilter;
+        return matchesSearch && matchesPlatform && matchesSource;
       }),
-    [candidates, term, platformFilter]
+    [candidates, term, platformFilter, sourceFilter]
   );
+
+  const actionableCount = useMemo(() => candidates.filter(isActionable).length, [candidates]);
 
   const filteredIssued = useMemo(
     () =>
@@ -384,7 +408,7 @@ export default function CreditNotesPage() {
   );
 
   const openOnWorkListCents = useMemo(
-    () => candidates.reduce((acc, c) => acc + toCents(c.open_amount), 0),
+    () => candidates.filter(isActionable).reduce((acc, c) => acc + toCents(c.open_amount), 0),
     [candidates]
   );
 
@@ -437,6 +461,25 @@ export default function CreditNotesPage() {
     setModalMode(modeForCandidate(candidate));
     setShowIssueModal(true);
     loadModalLines(candidate.invoice_id, candidate.suggested_lines);
+  };
+
+  /**
+   * Odoo invoice cancelled, reset to draft or edited after its e-invoice: two choices. "I'll fix it in Odoo" does
+   * nothing (the row goes away once Odoo is fixed and synced); the other opens the issue form for the open amount
+   * (code and reference as suggested), which asks once more before issuing.
+   */
+  const handleReviewOdooChange = async (candidate) => {
+    const name = candidate.odoo_invoice_name || candidate.invoice_number;
+    const issueIt = await confirm({
+      title: `${name} changed in Odoo after its e-invoice`,
+      message: `${candidate.explanation || 'This Odoo invoice was changed in Odoo after its e-invoice was issued.'} `
+        + `Either fix it in Odoo (put it back as it was; the row disappears after the next sync), or issue a credit `
+        + `note for the open amount (${formatMoney(candidate.open_amount)}) on e-invoice ${candidate.invoice_number}.`,
+      confirmText: 'Issue credit note for the open amount',
+      cancelText: "I'll fix it in Odoo",
+      variant: 'warning'
+    });
+    if (issueIt) handleOpenIssueCandidate({ ...candidate, suggested_lines: null });
   };
 
   const handleOpenManualIssue = () => {
@@ -700,9 +743,12 @@ export default function CreditNotesPage() {
               <Clock size={20} />
             </div>
           </div>
-          <div className="cn-stat-value">{loadingCandidates ? '…' : candidates.length}</div>
+          <div className="cn-stat-value">{loadingCandidates ? '…' : actionableCount}</div>
           <div className="cn-stat-subtext">
-            <span>Invoices of cancelled, returned or refunded orders</span>
+            <span>
+              Invoices of cancelled, returned or refunded orders, and Odoo refunds
+              {candidates.length > actionableCount ? ` (+${candidates.length - actionableCount} for information)` : ''}
+            </span>
           </div>
         </div>
 
@@ -756,7 +802,7 @@ export default function CreditNotesPage() {
             >
               <Clock size={16} />
               <span>Accounting Work List</span>
-              <span className="cn-tab-badge cn-tab-badge-amber">{candidates.length}</span>
+              <span className="cn-tab-badge cn-tab-badge-amber">{actionableCount}</span>
             </button>
 
             <button
@@ -809,6 +855,22 @@ export default function CreditNotesPage() {
                   </option>
                 ))}
               </select>
+
+              {activeTab === 'candidates' && (
+                <select
+                  className="cn-form-select"
+                  style={{ width: 'auto', padding: '7px 12px' }}
+                  value={sourceFilter}
+                  onChange={(e) => setSourceFilter(e.target.value)}
+                  aria-label="Source"
+                >
+                  {SOURCE_OPTIONS.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           )}
         </div>
@@ -856,60 +918,94 @@ export default function CreditNotesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredCandidates.map((cand) => (
-                    <tr key={cand.invoice_id}>
-                      <td>
-                        <div style={{ fontWeight: 600 }}>{cand.platform_order_id || '—'}</div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
-                          <PlatformBadge platform={cand.platform} hideStatus />
-                          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Store {cand.store_id ?? '—'}</span>
-                        </div>
-                      </td>
-                      <td>
-                        <div style={{ fontWeight: 600, color: 'var(--primary)' }}>{cand.invoice_number}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          Issued {formatDateTime(cand.invoice_issued_at)}
-                        </div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)', marginTop: '2px' }}>
-                          Total {formatMoney(cand.invoice_total)}
-                          {toCents(cand.credited_amount) > 0 && <> &middot; credited {formatMoney(cand.credited_amount)}</>}
-                        </div>
-                      </td>
-                      <td>
-                        <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{cand.explanation || '—'}</div>
-                        <div className="cn-reason-desc">
-                          Order status now: {cand.order_status_now || cand.order_status_standard_now || '—'}
-                          {cand.core_refund_amount !== null && cand.core_refund_amount !== undefined && (
-                            <> &middot; platform refund {formatMoney(cand.core_refund_amount)}</>
+                  {filteredCandidates.map((cand, idx) => {
+                    const odoo = cand.source === 'odoo';
+                    const actionable = isActionable(cand);
+                    return (
+                      <tr key={candidateKey(cand, idx)} className={actionable ? '' : 'cn-row-info'}>
+                        <td>
+                          <div style={{ fontWeight: 600 }}>
+                            {odoo ? (cand.odoo_refund_name || cand.odoo_invoice_name || '—') : (cand.platform_order_id || '—')}
+                          </div>
+                          {odoo && cand.odoo_refund_name && cand.odoo_invoice_name && (
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>refund of {cand.odoo_invoice_name}</div>
                           )}
-                        </div>
-                      </td>
-                      <td>
-                        <span className="cn-reason-code-badge">Code {cand.suggested_correction_code || '—'}</span>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '3px' }}>
-                          {SUGGESTED_ACTIONS[cand.suggested_action] || cand.suggested_action || ''}
-                        </div>
-                      </td>
-                      <td>
-                        <div className="cn-amount-main">{formatMoney(cand.open_amount)}</div>
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        {canIssue ? (
-                          <button
-                            type="button"
-                            className="btn btn-primary"
-                            style={{ padding: '5px 10px', fontSize: '0.74rem', borderRadius: 4 }}
-                            onClick={() => handleOpenIssueCandidate(cand)}
-                          >
-                            <span>Review & Issue</span>
-                            <ArrowRight size={13} />
-                          </button>
-                        ) : (
-                          <span style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>Accounting or IT issues it</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
+                            <span className={`cn-source-tag cn-source-${cand.source || 'marketplace'}`}>
+                              {SOURCE_LABELS[cand.source] || 'Marketplace'}
+                            </span>
+                            {!odoo && <PlatformBadge platform={cand.platform} hideStatus />}
+                            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                              {odoo ? 'Company' : 'Store'} {cand.store_id ?? '—'}
+                            </span>
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ fontWeight: 600, color: actionable ? 'var(--primary)' : 'inherit' }}>
+                            {cand.invoice_number || (odoo ? 'No e-invoice yet' : '—')}
+                          </div>
+                          {cand.invoice_issued_at && (
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                              Issued {formatDateTime(cand.invoice_issued_at)}
+                            </div>
+                          )}
+                          {cand.invoice_total !== null && cand.invoice_total !== undefined && (
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)', marginTop: '2px' }}>
+                              Total {formatMoney(cand.invoice_total)}
+                              {toCents(cand.credited_amount) > 0 && <> &middot; credited {formatMoney(cand.credited_amount)}</>}
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{cand.explanation || '—'}</div>
+                          <div className="cn-reason-desc">
+                            {odoo ? (
+                              cand.odoo_refund_total !== null && cand.odoo_refund_total !== undefined
+                                ? <>Odoo refund total {formatMoney(cand.odoo_refund_total)}</>
+                                : <>Odoo invoice {cand.odoo_invoice_name || '—'}</>
+                            ) : (
+                              <>
+                                Order status now: {cand.order_status_now || cand.order_status_standard_now || '—'}
+                                {cand.core_refund_amount !== null && cand.core_refund_amount !== undefined && (
+                                  <> &middot; platform refund {formatMoney(cand.core_refund_amount)}</>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          {actionable && (
+                            <span className="cn-reason-code-badge">Code {cand.suggested_correction_code || '—'}</span>
+                          )}
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '3px' }}>
+                            {SUGGESTED_ACTIONS[cand.suggested_action] || cand.suggested_action || ''}
+                          </div>
+                        </td>
+                        <td>
+                          <div className="cn-amount-main">{actionable ? formatMoney(cand.open_amount) : '—'}</div>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          {!actionable ? (
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>Information only</span>
+                          ) : canIssue ? (
+                            <button
+                              type="button"
+                              className="btn btn-primary"
+                              style={{ padding: '5px 10px', fontSize: '0.74rem', borderRadius: 4 }}
+                              onClick={() => (cand.suggested_action === 'review_odoo_change'
+                                ? handleReviewOdooChange(cand)
+                                : handleOpenIssueCandidate(cand))}
+                            >
+                              <span>{cand.suggested_action === 'review_odoo_change' ? 'Review' : 'Review & Issue'}</span>
+                              <ArrowRight size={13} />
+                            </button>
+                          ) : (
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>Accounting or IT issues it</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
@@ -1281,11 +1377,13 @@ export default function CreditNotesPage() {
                     className="cn-form-input"
                     placeholder="e.g. cancel"
                     value={modalSourceRef}
+                    readOnly={selectedCandidate?.source === 'odoo'}
                     onChange={(e) => setModalSourceRef(e.target.value)}
                   />
                   <span style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>
-                    The same reference on the same order always gives back the credit note already issued for it. Use a new
-                    reference for a new adjustment.
+                    {selectedCandidate?.source === 'odoo' || modalInvoice?.platform === 'odoo'
+                      ? 'Odoo invoices: the reference names the Odoo refund (odoo-refund:…) or the change in Odoo (odoo-cancel:…). Open Odoo credit notes from the work list so it is filled in for you.'
+                      : 'The same reference on the same order always gives back the credit note already issued for it. Use a new reference for a new adjustment.'}
                   </span>
                 </div>
 
@@ -1448,6 +1546,23 @@ export default function CreditNotesPage() {
                               : 'worked out by the server'}
                         </span>
                       </div>
+                      {selectedCandidate?.odoo_refund_total !== null && selectedCandidate?.odoo_refund_total !== undefined && (
+                        <div className="totals-row">
+                          <span>Odoo refund {selectedCandidate.odoo_refund_name || ''} total</span>
+                          <span className="num-target">
+                            -{formatMoney(selectedCandidate.odoo_refund_total)}
+                            {modalMode === 'amount' && (
+                              <span
+                                className={`cn-refund-diff ${toCents(selectedCandidate.odoo_refund_total) === enteredAmountCents ? 'match' : 'differs'}`}
+                              >
+                                {toCents(selectedCandidate.odoo_refund_total) === enteredAmountCents
+                                  ? ' matches'
+                                  : ` (${centsToMoney(Math.abs(toCents(selectedCandidate.odoo_refund_total) - enteredAmountCents))} ${toCents(selectedCandidate.odoo_refund_total) > enteredAmountCents ? 'still to enter' : 'too much'})`}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      )}
                       <div className="totals-row">
                         <span style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>
                           The exact amounts and VAT are calculated by the database when the credit note is issued.

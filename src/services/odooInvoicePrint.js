@@ -130,6 +130,7 @@ export const ODOO_INVOICE_SHEET_CSS = `
 .oi-title-big { font-weight: 800; font-size: 15pt; text-decoration: underline; }
 .oi-number { margin-top: 8pt; font-size: 15pt; font-weight: 700; }
 .oi-number-sign { font-size: 13pt; margin-right: 4pt; }
+.oi-reference { font-size: 9pt; font-weight: 700; margin-top: 2pt; }
 .oi-grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .oi-grid td, .oi-grid th { border: 0.75pt solid #222; padding: 2.5pt 5pt; vertical-align: top; }
 .oi-label { font-size: 8pt; font-weight: 700; text-transform: none; }

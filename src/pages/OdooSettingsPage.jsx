@@ -2,7 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { PlugZap, Save, Trash2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm, useNotify } from '../context/NotificationContext';
-import { odooApi, errorText, fieldErrors, keyBanner, formatDateTime } from '../services/odooService';
+import {
+  odooApi, errorText, fieldErrors, keyBanner, formatDateTime, syncSummary, einvoiceSummary, SYNC_STATUS
+} from '../services/odooService';
 import './pages.css';
 import './odoo.css';
 
@@ -11,6 +13,8 @@ import './odoo.css';
  *   GET/PUT /api/odoo/settings, DELETE /api/odoo/settings/api-key, POST /api/odoo/settings/test
  * The API key is write-only: the field is always empty on load, is sent only when IT types a new one, and the
  * server never sends it back (only the last 4 characters, the expiry date and who set it).
+ * Also: the automatic e-invoice switch (auto_issue_enabled, 2026-11-19) and, from GET /api/odoo/sync-runs, the last
+ * sync and the e-invoices it issued (last_einvoices: issued / failed counts and the reasons).
  */
 
 const MARK = { ok: '✔', warn: '⚠', fail: '✖' };
@@ -24,7 +28,8 @@ function formFrom(settings) {
     sync_start_date: settings?.sync_start_date || '2026-12-01',
     company_ids: (settings?.company_ids || []).join(', '),
     auto_sync_enabled: settings?.auto_sync_enabled ?? true,
-    sync_interval_minutes: settings?.sync_interval_minutes ?? ''
+    sync_interval_minutes: settings?.sync_interval_minutes ?? '',
+    auto_issue_enabled: settings?.auto_issue_enabled ?? true
   };
 }
 
@@ -35,7 +40,8 @@ function requestBody(form) {
     sync_start_date: form.sync_start_date,
     // "1, 3" or "1 3": the server checks each id; empty = every company
     company_ids: form.company_ids.trim(),
-    auto_sync_enabled: Boolean(form.auto_sync_enabled)
+    auto_sync_enabled: Boolean(form.auto_sync_enabled),
+    auto_issue_enabled: Boolean(form.auto_issue_enabled)
   };
   // only asked when automatic sync is on; empty = every 10 minutes
   if (form.auto_sync_enabled) {
@@ -44,6 +50,54 @@ function requestBody(form) {
   if (form.api_key.trim()) body.api_key = form.api_key.trim();
   if (form.api_key_expires_on) body.api_key_expires_on = form.api_key_expires_on;
   return body;
+}
+
+/** The last sync and the e-invoices issued after it (GET /api/odoo/sync-runs). */
+function LastSync({ runs }) {
+  const last = (runs.runs || [])[0];
+  const chip = SYNC_STATUS[runs.status];
+  const e = runs.last_einvoices;
+  return (
+    <div className="odoo-last-sync">
+      <div className="odoo-section-title">Last sync</div>
+      <dl className="odoo-facts">
+        <div>
+          <dt>Status</dt>
+          <dd>{chip ? <span className={`odoo-chip odoo-chip-${chip.tone}`}>{chip.label}</span> : '—'}</dd>
+        </div>
+        <div>
+          <dt>Finished</dt>
+          <dd>{last?.finished_at ? formatDateTime(last.finished_at) : '—'}{last && last.ok === false ? ' (failed)' : ''}</dd>
+        </div>
+        <div><dt>Odoo invoices</dt><dd>{last ? syncSummary(last.counts) || '—' : '—'}</dd></div>
+        <div>
+          <dt>E-invoices</dt>
+          <dd>
+            {e ? (
+              <>
+                <span className="odoo-chip odoo-chip-ok">{e.issued || 0} issued</span>{' '}
+                <span className={`odoo-chip odoo-chip-${e.failed ? 'bad' : 'off'}`}>{e.failed || 0} failed</span>
+                <div className="odoo-muted">
+                  {einvoiceSummary(e)}{e.finished_at ? ` (sync of ${formatDateTime(e.finished_at)})` : ''}
+                </div>
+              </>
+            ) : <span className="odoo-muted">No sync has issued e-invoices yet.</span>}
+            {runs.auto_issue_enabled === false && <div className="odoo-muted">Automatic e-invoices are paused.</div>}
+          </dd>
+        </div>
+      </dl>
+      {e?.failures?.length > 0 && (
+        <ul className="odoo-checks">
+          {e.failures.map((f) => (
+            <li key={f.odoo_move_id} className="odoo-check-fail">
+              <span className="odoo-check-mark">✖</span>
+              <span><strong>{f.odoo_invoice_name || `Odoo id ${f.odoo_move_id}`}</strong>: {f.message}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 export default function OdooSettingsPage() {
@@ -58,6 +112,7 @@ export default function OdooSettingsPage() {
   const [loadError, setLoadError] = useState('');
   const [busy, setBusy] = useState('');
   const [test, setTest] = useState(null);
+  const [runs, setRuns] = useState(null);  // GET /api/odoo/sync-runs: last sync + last e-invoice counts
 
   const show = (res) => {
     if (!res.ok) {
@@ -69,12 +124,17 @@ export default function OdooSettingsPage() {
     setForm(formFrom(res.data));
   };
 
-  const load = async () => show(await odooApi.settings());
+  const load = async () => {
+    show(await odooApi.settings());
+    const res = await odooApi.syncRuns();
+    if (res.ok) setRuns(res.data);
+  };
 
   useEffect(() => {
     if (!allowed) return undefined;
     let alive = true;
     odooApi.settings().then((res) => alive && show(res));
+    odooApi.syncRuns().then((res) => alive && res.ok && setRuns(res.data));
     return () => {
       alive = false;
     };
@@ -232,6 +292,17 @@ export default function OdooSettingsPage() {
               {err('sync_interval_minutes')}
             </label>
           )}
+          <div className="odoo-field">
+            <label className="odoo-checkbox">
+              <input type="checkbox" checked={form.auto_issue_enabled} onChange={set('auto_issue_enabled')} />
+              Issue e-invoices automatically
+            </label>
+            <span className="odoo-field-help">
+              After each successful sync, every Odoo invoice that is ready gets its e-invoice. Off: paused (the sync goes
+              on; nothing is issued until it is switched on again).
+            </span>
+            {err('auto_issue_enabled')}
+          </div>
         </div>
 
         <div className="odoo-actions">
@@ -263,6 +334,8 @@ export default function OdooSettingsPage() {
             </ul>
           </>
         )}
+
+        {runs && <LastSync runs={runs} />}
 
         {settings?.updated_at && (
           <p className="odoo-muted" style={{ marginTop: 16 }}>

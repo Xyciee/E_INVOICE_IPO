@@ -5,8 +5,10 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useNotify } from '../context/NotificationContext';
 import {
-  odooApi, errorText, fieldErrors, SYNC_STATUS, keyBanner, syncSummary, formatMoney, formatDateTime
+  odooApi, errorText, fieldErrors, SYNC_STATUS, keyBanner, syncSummary, formatMoney, formatDateTime,
+  EINVOICE_STATES, EINVOICE_FILTERS, creditLabel
 } from '../services/odooService';
+import { fetchDocumentDetails } from '../services/scanService';
 import OdooInvoiceSheet from '../components/OdooInvoiceSheet';
 import {
   addressOf, businessAddress, buildOdooInvoice, ADDRESS_SOURCES, ODOO_INVOICE_SHEET_CSS
@@ -22,6 +24,8 @@ import './odoo.css';
  *   GET  /api/odoo/sync-runs                           sync status, schedule, key expiry
  *   POST /api/odoo/sync                                Sync now (run_odoo_sync: Accounting, IT) — only queues
  *   GET  /api/odoo/sync-requests/<id>                  polled every 2 s until done / failed
+ * Each row carries its e-invoice (einvoice_state / einvoice_number / einvoice_hold_reason) and credit_status
+ * (2026-11-19): the e-invoice is issued automatically after each sync; ?einvoice_state= filters on it.
  * Nothing is kept in the browser: every list comes from the server.
  */
 
@@ -35,7 +39,9 @@ const FLAG_OPTIONS = [
   { value: 'reset_to_draft', label: 'Reset to draft after posting' },
   { value: 'none', label: 'Not flagged' }
 ];
-const EMPTY_FILTERS = { company_id: '', move_type: '', state: '', flag: '', q: '', invoice_from: '', invoice_to: '' };
+const EMPTY_FILTERS = {
+  company_id: '', move_type: '', state: '', flag: '', einvoice_state: '', q: '', invoice_from: '', invoice_to: ''
+};
 
 function minutesText(minutes) {
   if (minutes === null || minutes === undefined) return 'never';
@@ -63,6 +69,30 @@ function FlagChip({ flag, notMirrored }) {
   );
 }
 
+/** The E-invoice cell: the number when issued, else a label (+ the hold reason, as the database wrote it). */
+function EinvoiceCell({ row, available }) {
+  if (!available) return <span className="odoo-muted">—</span>;
+  const state = EINVOICE_STATES[row.einvoice_state];
+  const credit = creditLabel(row);
+  return (
+    <div className="odoo-einvoice">
+      {row.einvoice_state === 'issued' && row.einvoice_number ? (
+        <strong className="odoo-einvoice-number">{row.einvoice_number}</strong>
+      ) : state ? (
+        <span className={`odoo-chip odoo-chip-${state.tone}`} title={row.einvoice_hold_reason || state.help}>{state.label}</span>
+      ) : (
+        <span className="odoo-muted">{row.move_type === 'out_refund' ? '' : '—'}</span>
+      )}
+      {row.einvoice_state === 'hold' && row.einvoice_hold_reason && (
+        <div className="odoo-einvoice-reason">{row.einvoice_hold_reason}</div>
+      )}
+      {credit && (
+        <div><span className={`odoo-chip odoo-chip-${credit.tone}`} title={row.credit_explanation || ''}>{credit.label}</span></div>
+      )}
+    </div>
+  );
+}
+
 export default function OdooInvoicesPage() {
   const { user } = useAuth();
   const notify = useNotify();
@@ -73,6 +103,7 @@ export default function OdooInvoicesPage() {
   const [status, setStatus] = useState(null);
   const [rows, setRows] = useState([]);
   const [companies, setCompanies] = useState([]);  // [{company_id, company_name}] the Company filter can pick
+  const [einvoiceInfo, setEinvoiceInfo] = useState({ available: true, problem: null });
   const [count, setCount] = useState(0);
   const [offset, setOffset] = useState(0);
   const [nextOffset, setNextOffset] = useState(null);
@@ -105,6 +136,7 @@ export default function OdooInvoicesPage() {
     setError('');
     setRows(res.data.results || []);
     setCompanies(res.data.companies || []);
+    setEinvoiceInfo({ available: res.data.einvoice_available !== false, problem: res.data.einvoice_problem || null });
     setCount(res.data.count || 0);
     setNextOffset(res.data.next_offset);
   }, []);
@@ -204,7 +236,7 @@ export default function OdooInvoicesPage() {
   // with nothing synced yet); the column only when there is more than one (else it says the same on every row)
   const showCompanyFilter = companies.length > 0 || Boolean(filters.company_id);
   const multiCompany = companies.length > 1;
-  const columnCount = multiCompany ? 11 : 10;
+  const columnCount = multiCompany ? 12 : 11;
 
   return (
     <div>
@@ -316,6 +348,13 @@ export default function OdooInvoicesPage() {
             </select>
           </label>
           <label>
+            E-invoice
+            <select className="odoo-input" value={filters.einvoice_state} disabled={!einvoiceInfo.available}
+              onChange={(e) => setFilters({ ...filters, einvoice_state: e.target.value })}>
+              {EINVOICE_FILTERS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </label>
+          <label>
             Flag
             <select className="odoo-input" value={filters.flag} onChange={(e) => setFilters({ ...filters, flag: e.target.value })}>
               {FLAG_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -334,6 +373,9 @@ export default function OdooInvoicesPage() {
         </form>
 
         {error && <div className="odoo-banner odoo-banner-bad">{error}</div>}
+        {!einvoiceInfo.available && einvoiceInfo.problem && (
+          <div className="odoo-banner odoo-banner-warn"><AlertTriangle size={18} /> <span>{einvoiceInfo.problem}</span></div>
+        )}
 
         <div className="table-responsive">
           <table className="data-table odoo-table">
@@ -349,6 +391,7 @@ export default function OdooInvoicesPage() {
                 <th>Buyer</th>
                 <th>TIN (as typed)</th>
                 <th className="num">Total</th>
+                <th>E-invoice</th>
                 <th>Flag</th>
               </tr>
             </thead>
@@ -367,6 +410,7 @@ export default function OdooInvoicesPage() {
                   <td>{r.buyer_name || '—'}</td>
                   <td>{r.buyer_vat_as_typed || '—'}</td>
                   <td className="num">{formatMoney(r.amount_total, r.currency_code)}</td>
+                  <td><EinvoiceCell row={r} available={einvoiceInfo.available} /></td>
                   <td><FlagChip flag={r.flag} notMirrored={r.reversed_entry_not_mirrored} /></td>
                 </tr>
               ))}
@@ -396,6 +440,41 @@ export default function OdooInvoicesPage() {
           onStart={handleSyncNow} onClose={() => setSyncDialog(false)} />
       )}
     </div>
+  );
+}
+
+/** Drawer section: the e-invoice this Odoo invoice got (or why not yet) and its credit notes. */
+function EinvoiceSection({ einvoice, isRefund }) {
+  const state = EINVOICE_STATES[einvoice.einvoice_state];
+  const credit = creditLabel(einvoice);
+  return (
+    <section>
+      <div className="odoo-section-title">E-invoice</div>
+      <dl className="odoo-facts">
+        {!isRefund && (
+          <div>
+            <dt>E-invoice</dt>
+            <dd>
+              {einvoice.einvoice_number
+                ? <strong>{einvoice.einvoice_number}</strong>
+                : state ? <span className={`odoo-chip odoo-chip-${state.tone}`}>{state.label}</span> : '—'}
+              {einvoice.einvoice_issued_at && <div className="odoo-muted">issued {formatDateTime(einvoice.einvoice_issued_at)}</div>}
+              {!einvoice.einvoice_number && state?.help && <div className="odoo-muted">{state.help}</div>}
+            </dd>
+          </div>
+        )}
+        {einvoice.einvoice_state === 'hold' && (
+          <div><dt>Why on hold</dt><dd>{einvoice.einvoice_hold_reason || '—'}</dd></div>
+        )}
+        <div>
+          <dt>Credit note</dt>
+          <dd>
+            {credit ? <span className={`odoo-chip odoo-chip-${credit.tone}`}>{credit.label}</span> : '—'}
+            {einvoice.credit_explanation && <div className="odoo-muted">{einvoice.credit_explanation}</div>}
+          </dd>
+        </div>
+      </dl>
+    </section>
   );
 }
 
@@ -456,6 +535,7 @@ function OdooInvoiceDrawer({ id, isIT, onClose }) {
           {!data && !error && <div className="odoo-muted">Loading…</div>}
           {move && (
             <>
+              {data.einvoice && <EinvoiceSection einvoice={data.einvoice} isRefund={move.move_type === 'out_refund'} />}
               <section>
                 <div className="odoo-section-title">Invoice</div>
                 <dl className="odoo-facts">
@@ -838,8 +918,52 @@ function SyncNowDialog({ startDate, companies = [], initialCompany = '', onStart
 }
 
 
+/**
+ * What the printout is for, once an e-invoice exists (brief 2026-11-19 §2.4): the e-invoice number (or the credit
+ * note number for a refund), the buyer exactly as issued (name, address, TIN-branch from the ledger document) and the
+ * Odoo number as a reference line. Before that, the sheet prints Odoo's own number as it always did.
+ */
+function withEinvoice(invoice, detail, document) {
+  const e = detail?.einvoice;
+  const move = detail?.move || {};
+  if (!e) return invoice;
+  if (invoice.isRefund) {
+    const number = (e.credit_note_numbers || [])[0];
+    if (!number) return invoice;
+    const references = [
+      move.reversed_entry_name ? `Ref.: Odoo ${move.reversed_entry_name}` : null,
+      move.name ? `Odoo credit note: ${move.name}` : null
+    ].filter(Boolean);
+    return { ...invoice, number, references, isEinvoice: true };
+  }
+  if (!e.einvoice_number) return invoice;
+  const doc = document?.document;
+  const references = document?.odoo_reference?.lines?.length
+    ? document.odoo_reference.lines
+    : (move.name ? [`Ref.: Odoo ${move.name}`] : []);
+  const buyer = doc ? {
+    name: doc.buyer_name || invoice.buyer.name,
+    tin: [doc.buyer_tin, doc.buyer_branch_code].filter(Boolean).join(' - ') || invoice.buyer.tin,
+    address: doc.buyer_address || invoice.buyer.address
+  } : invoice.buyer;
+  return { ...invoice, number: e.einvoice_number, references, buyer, isEinvoice: true };
+}
+
 function OdooInvoicePrintPreview({ detail, onClose }) {
-  const invoice = buildOdooInvoice(detail);
+  const [einvoiceDoc, setEinvoiceDoc] = useState(null);
+  const einvoiceId = detail?.einvoice?.einvoice_id;
+
+  useEffect(() => {
+    let alive = true;
+    if (einvoiceId && detail?.move?.move_type !== 'out_refund') {
+      fetchDocumentDetails(einvoiceId).then((res) => {
+        if (alive && res?.ok) setEinvoiceDoc(res.data);
+      });
+    }
+    return () => { alive = false; };
+  }, [einvoiceId, detail]);
+
+  const invoice = withEinvoice(buildOdooInvoice(detail), detail, einvoiceDoc);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -874,6 +998,11 @@ function OdooInvoicePrintPreview({ detail, onClose }) {
         {invoice.state !== 'posted' && (
           <div className="odoo-banner odoo-banner-bad" style={{ margin: '0 24px' }}>
             <AlertTriangle size={16} /> This invoice is not posted in Odoo any more: the printout is stamped NOT VALID.
+          </div>
+        )}
+        {invoice.state === 'posted' && !invoice.isEinvoice && (
+          <div className="odoo-banner odoo-banner-warn" style={{ margin: '0 24px' }}>
+            <Info size={16} /> No {invoice.isRefund ? 'credit note' : 'e-invoice'} yet: this prints Odoo&apos;s own number.
           </div>
         )}
         <div className="odoo-print-paper-wrap">
