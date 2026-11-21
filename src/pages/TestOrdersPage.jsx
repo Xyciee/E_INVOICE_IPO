@@ -39,6 +39,7 @@ export default function TestOrdersPage() {
   const [form, setForm] = useState({ store: '', scenario: 'ready', count: 1 });
   const [busy, setBusy] = useState(false);
   const [lastMade, setLastMade] = useState([]);
+  const [unitsOrder, setUnitsOrder] = useState(null); // the order whose units are being cancelled / returned
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -96,6 +97,7 @@ export default function TestOrdersPage() {
   };
 
   const scenario = info?.scenarios?.find((s) => s.code === form.scenario);
+  const unitPlatforms = info?.unit_statuses || {};
 
   return (
     <div>
@@ -203,6 +205,15 @@ export default function TestOrdersPage() {
                             <option key={s} value={s}>{STATUS_LABELS[s] || s}</option>
                           ))}
                         </select>
+                        {unitPlatforms[o.platform] && (
+                          <button className="btn btn-outline" style={{ marginTop: 6, width: '100%' }}
+                            disabled={!info.units_available}
+                            title={info.units_available ? 'Cancel or return some units (partial credit note)'
+                              : 'Needs sql/14s_test_order_units_staging_2026-11-21.sql on staging'}
+                            onClick={() => setUnitsOrder(o)}>
+                            Cancel units…
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -219,6 +230,122 @@ export default function TestOrdersPage() {
           </div>
         </div>
       )}
+
+      {unitsOrder && (
+        <UnitsDialog order={unitsOrder} onClose={() => setUnitsOrder(null)} onChanged={load} />
+      )}
+    </div>
+  );
+}
+
+const UNIT_STATUS_LABELS = { cancelled: 'Cancelled', returned: 'Returned' };
+
+/*
+ * Cancel or return some units of one Lazada / TikTok test order (they keep one item row per unit). Once the order is
+ * invoiced, the Credit Notes work list then suggests "credit lines" for exactly these units.
+ */
+function UnitsDialog({ order, onClose, onChanged }) {
+  const notify = useNotify();
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+  const [form, setForm] = useState({ sku: '', units: 1, status: 'cancelled' });
+  const [busy, setBusy] = useState(false);
+  const url = `/api/test-orders/${order.platform}/${order.store_id}/${encodeURIComponent(order.platform_order_id)}/units`;
+
+  useEffect(() => {
+    let alive = true;
+    api.get(url).then((res) => {
+      if (!alive) return;
+      if (!res.ok) {
+        setError(errorText(res, 'Could not load the items of this order.'));
+        return;
+      }
+      setData(res.data);
+      setForm((f) => ({ ...f, sku: res.data.lines[0]?.sku || '' }));
+    });
+    return () => { alive = false; };
+  }, [url]);
+
+  const save = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    const res = await api.post(url, { sku: form.sku, units: Number(form.units), status: form.status });
+    setBusy(false);
+    if (!res.ok) {
+      setError(errorText(res, `The server said ${res.status}.`));
+      return;
+    }
+    setData((d) => ({ ...d, lines: res.data.lines }));
+    setError('');
+    notify.success('Units changed', `${res.data.changed.length} unit(s) of ${form.sku} set to ${UNIT_STATUS_LABELS[form.status]}.`);
+    onChanged();
+  };
+
+  const summary = (line) => Object.entries(line.statuses || {})
+    .map(([status, units]) => `${Number(units)} ${status || 'no status'}`).join(', ');
+
+  return (
+    <div className="odoo-modal-backdrop" onClick={() => !busy && onClose()}>
+      <form className="odoo-modal" role="dialog" aria-modal="true" aria-labelledby="units-dialog-title"
+        onClick={(e) => e.stopPropagation()} onSubmit={save}>
+        <div className="odoo-modal-header">
+          <div>
+            <h2 className="odoo-modal-title" id="units-dialog-title">Cancel units</h2>
+            <p className="odoo-modal-subtitle">
+              {order.platform} · {order.platform_order_id}. Invoice the order first (scan it); the Credit Notes list then
+              suggests crediting exactly these units.
+            </p>
+          </div>
+          <button type="button" className="odoo-close" onClick={onClose} disabled={busy} aria-label="Close">&times;</button>
+        </div>
+
+        <div className="odoo-modal-body">
+          {error && <div className="odoo-banner odoo-banner-bad">{error}</div>}
+          {!data && !error && <p className="odoo-muted">Loading…</p>}
+          {data && (
+            <>
+              <table className="data-table odoo-table" style={{ marginBottom: 12 }}>
+                <thead><tr><th>Item</th><th className="num">Units</th><th>Status of the units</th></tr></thead>
+                <tbody>
+                  {data.lines.map((l) => (
+                    <tr key={`${l.sku}:${l.unit_price}`} style={{ cursor: 'default' }}>
+                      <td>{l.name}<div className="odoo-muted">{l.sku} · ₱{l.unit_price}</div></td>
+                      <td className="num">{Number(l.units)}</td>
+                      <td>{summary(l)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="odoo-filters">
+                <label>
+                  Item
+                  <select className="odoo-input" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })}>
+                    {data.lines.map((l) => <option key={`${l.sku}:${l.unit_price}`} value={l.sku}>{l.sku}</option>)}
+                  </select>
+                </label>
+                <label>
+                  Units
+                  <input className="odoo-input" type="number" min={1} max={20} value={form.units}
+                    onChange={(e) => setForm({ ...form, units: e.target.value })} />
+                </label>
+                <label>
+                  New status
+                  <select className="odoo-input" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+                    {data.statuses.map((s) => <option key={s} value={s}>{UNIT_STATUS_LABELS[s] || s}</option>)}
+                  </select>
+                </label>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="odoo-modal-footer">
+          <button type="button" className="btn btn-outline" onClick={onClose} disabled={busy}>Close</button>
+          <button type="submit" className="btn btn-primary" disabled={busy || !data || !form.sku}>
+            {busy ? 'Saving…' : 'Set units'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
