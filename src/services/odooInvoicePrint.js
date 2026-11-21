@@ -157,6 +157,8 @@ export const ODOO_INVOICE_SHEET_CSS = `
 .oi-checkbox { display: inline-block; width: 10pt; height: 10pt; border: 0.75pt solid #222; vertical-align: -1.5pt; margin-right: 4pt; }
 .oi-sign-line { border-bottom: 0.75pt solid #222; margin-top: 0.3in; }
 .oi-footer { font-size: 7.5pt; font-weight: 700; line-height: 1.3; }
+.oi-portal { display: flex; align-items: center; gap: 6pt; margin-top: 4pt; font-size: 7.5pt; font-weight: 700; }
+.oi-portal-qr { width: 0.9in; height: 0.9in; image-rendering: pixelated; }
 .oi-stamp { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%) rotate(-24deg);
   border: 3pt solid rgba(200, 0, 0, 0.55); color: rgba(200, 0, 0, 0.55); font-size: 24pt; font-weight: 900;
   padding: 6pt 14pt; white-space: nowrap; pointer-events: none; z-index: 2; }

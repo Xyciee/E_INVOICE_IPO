@@ -1292,6 +1292,7 @@ export default function PackingScanPage() {
                     activeInvoice?.total_amount ||
                     '0.00'
                   }
+                  portalQrSvg={displayDoc?.portalQrSvg}
                 />
               </div>
 
@@ -2345,6 +2346,7 @@ export default function PackingScanPage() {
               displayDoc?.totalAmount ||
               '0.00'
             }
+            portalQrSvg={printableDoc._normalized?.portalQrSvg || printableDoc.portal_qr_svg}
           />
         </div>
       )}

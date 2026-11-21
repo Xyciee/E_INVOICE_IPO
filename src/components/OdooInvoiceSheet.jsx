@@ -110,6 +110,13 @@ export default function OdooInvoiceSheet({ invoice }) {
           {ODOO_INVOICE_TEXT.footerLines.length > 0 && (
             <div className="oi-footer">{ODOO_INVOICE_TEXT.footerLines.map((l) => <div key={l}>{l}</div>)}</div>
           )}
+          {invoice.portalQrSvg && (
+            <div className="oi-portal">
+              <img className="oi-portal-qr" alt="QR code: view this invoice online"
+                src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(invoice.portalQrSvg)}`} />
+              <div>{ODOO_INVOICE_TEXT.portalLine}</div>
+            </div>
+          )}
         </div>
 
         <div className="oi-bottom-right">

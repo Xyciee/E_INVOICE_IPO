@@ -25,5 +25,7 @@ export const ODOO_INVOICE_TEXT = {
     draft: 'DRAFT IN ODOO — NOT VALID'
   },
   // small lines at the bottom left (BIR permit / CAS acknowledgement wording from the accountant)
-  footerLines: []
+  footerLines: [],
+  // next to the QR code (buyer portal) printed on e-invoices
+  portalLine: 'Scan to view this invoice online.'
 };

@@ -288,6 +288,7 @@ export default function OrdersPage({ onNavigate }) {
 
     let issuedDocNumber = target.documentNumber;
     let issuedDocId = target.id;
+    let portalQrSvg = target.portalQrSvg || null;
 
     if (!activeStation) {
       notify.danger('Choose your station', 'Pick your packing station at the top of this page first.');
@@ -321,6 +322,7 @@ export default function OrdersPage({ onNavigate }) {
       const issuedNorm = issueRes.data ? normalizeDocumentRecord(issueRes.data) : null;
       issuedDocNumber = issuedNorm?.documentNumber;
       issuedDocId = issuedNorm?.id;
+      portalQrSvg = issuedNorm?.portalQrSvg || null;
     }
 
     // Never print or "move to tracker" without the real invoice number from the backend.
@@ -351,10 +353,17 @@ export default function OrdersPage({ onNavigate }) {
       return;
     }
 
+    if (!portalQrSvg) {
+      // The QR code (buyer portal) comes with the document; an order issued earlier has none in this row yet.
+      const detailRes = await fetchDocumentDetails(issuedDocId);
+      portalQrSvg = detailRes?.ok ? detailRes.data?.portal_qr_svg || null : null;
+    }
+
     const finalRecord = {
       ...target,
       id: issuedDocId,
-      documentNumber: issuedDocNumber
+      documentNumber: issuedDocNumber,
+      portalQrSvg
     };
 
     savePrintedInvoiceRecord(finalRecord, {
@@ -1238,6 +1247,7 @@ export default function OrdersPage({ onNavigate }) {
             vatExemptSales={printableOrder.vatExemptSales || '0.00'}
             zeroRatedSales={printableOrder.zeroRatedSales || '0.00'}
             totalAmount={printableOrder.totalAmount || '0.00'}
+            portalQrSvg={printableOrder.portalQrSvg}
           />
         </div>
       )}
