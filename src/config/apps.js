@@ -40,7 +40,8 @@ const HIDDEN_PAGES = { settings: 'manage_users', 'api-tester': 'manage_users' };
 
 /** Whether the user's permissions open this screen ("home", the launcher, is open to everyone). */
 export function canOpen(user, pageId) {
-  if (BY_ID[pageId]?.stagingOnly && user?.app_env !== 'staging') return false;
+  // authService stores /api/me's app_env as appEnv
+  if (BY_ID[pageId]?.stagingOnly && (user?.appEnv || user?.app_env) !== 'staging') return false;
   const needed = BY_ID[pageId]?.permission ?? HIDDEN_PAGES[pageId];
   return !needed || (user?.permissions || []).includes(needed);
 }
