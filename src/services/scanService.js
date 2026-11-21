@@ -980,6 +980,9 @@ export function normalizeDocumentRecord(raw) {
     lines,
     prints,
     creditNotes,
+    // Buyer portal (2026-11-21): QR code printed on the invoice -> public page with the invoice
+    portalUrl: raw.portal_url || doc.portal_url || null,
+    portalQrSvg: raw.portal_qr_svg || doc.portal_qr_svg || null,
     printCount: Number(
       doc.print_count ??
       raw.print_count ??
@@ -1224,6 +1227,10 @@ export function savePrintedInvoiceRecord(
     lastReprintReason: reprintReason || prev?.lastReprintReason || null,
     stationCode: stationCode || prev?.stationCode || ''
   };
+
+  // The QR picture is fetched again with the document; never kept in the browser.
+  delete entry.portalQrSvg;
+  if (entry.raw && entry.raw.portal_qr_svg) entry.raw = { ...entry.raw, portal_qr_svg: null };
 
   const updated =
     matchIdx >= 0

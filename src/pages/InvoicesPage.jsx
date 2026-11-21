@@ -1455,6 +1455,7 @@ export default function InvoicesPage() {
                   vatExemptSales={reprintModalDoc.vatExemptSales || '0.00'}
                   zeroRatedSales={reprintModalDoc.zeroRatedSales || '0.00'}
                   totalAmount={reprintModalDoc.totalAmount || '0.00'}
+                  portalQrSvg={reprintModalDoc.portalQrSvg}
                 />
               </div>
             </div>
@@ -1486,6 +1487,7 @@ export default function InvoicesPage() {
             vatExemptSales={printableDoc.vatExemptSales || '0.00'}
             zeroRatedSales={printableDoc.zeroRatedSales || '0.00'}
             totalAmount={printableDoc.totalAmount || '0.00'}
+            portalQrSvg={printableDoc.portalQrSvg}
           />
         </div>
       )}

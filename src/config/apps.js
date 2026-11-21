@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, ScanLine, ShoppingCart, Receipt, FileMinus, Gauge, CloudDownload, PlugZap, Users
+  LayoutDashboard, ScanLine, ShoppingCart, Receipt, FileMinus, Gauge, CloudDownload, PlugZap, Users, FlaskConical
 } from 'lucide-react';
 
 /*
@@ -26,7 +26,11 @@ export const APPS = [
   { id: 'api-speed-test', label: 'API Speed Test', group: 'Diagnostics & System', icon: Gauge, color: '#64748b',
     permission: 'manage_users', hint: 'For IT: how fast the system answers.' },
   { id: 'odoo-settings', label: 'Odoo Connection', group: 'Diagnostics & System', icon: PlugZap, color: '#0f766e',
-    permission: 'manage_odoo_settings', hint: 'For IT: where the system reads Odoo from.' }
+    permission: 'manage_odoo_settings', hint: 'For IT: where the system reads Odoo from.' },
+  // staging only (`stagingOnly`): fake marketplace orders for testing; never offered on production
+  { id: 'test-orders', label: 'Test Orders', group: 'Diagnostics & System', icon: FlaskConical, color: '#a855f7',
+    permission: 'create_test_orders', stagingOnly: true,
+    hint: 'For IT, staging only: make fake marketplace orders to test scanning and printing.' }
 ];
 
 const BY_ID = Object.fromEntries(APPS.map((app) => [app.id, app]));
@@ -36,6 +40,7 @@ const HIDDEN_PAGES = { settings: 'manage_users', 'api-tester': 'manage_users' };
 
 /** Whether the user's permissions open this screen ("home", the launcher, is open to everyone). */
 export function canOpen(user, pageId) {
+  if (BY_ID[pageId]?.stagingOnly && user?.app_env !== 'staging') return false;
   const needed = BY_ID[pageId]?.permission ?? HIDDEN_PAGES[pageId];
   return !needed || (user?.permissions || []).includes(needed);
 }

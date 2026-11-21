@@ -987,7 +987,8 @@ function withEinvoice(invoice, detail, document) {
     tin: [doc.buyer_tin, doc.buyer_branch_code].filter(Boolean).join(' - ') || invoice.buyer.tin,
     address: doc.buyer_address || invoice.buyer.address
   } : invoice.buyer;
-  return { ...invoice, number: e.einvoice_number, references, buyer, isEinvoice: true };
+  return { ...invoice, number: e.einvoice_number, references, buyer, isEinvoice: true,
+    portalQrSvg: document?.portal_qr_svg || null };
 }
 
 function OdooInvoicePrintPreview({ detail, onClose }) {

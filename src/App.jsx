@@ -16,6 +16,7 @@ import CreditNotesPage from './pages/CreditNotesPage';
 import OdooInvoicesPage from './pages/OdooInvoicesPage';
 import OdooSettingsPage from './pages/OdooSettingsPage';
 import UsersPage from './pages/UsersPage';
+import TestOrdersPage from './pages/TestOrdersPage';
 import ChangePasswordPage, { RequiredPasswordChange } from './pages/ChangePasswordPage';
 import ErrorBoundary from './components/feedback/ErrorBoundary';
 
@@ -33,6 +34,7 @@ const VALID_PAGES = new Set([
   'odoo-invoices',
   'odoo-settings',
   'users',
+  'test-orders',
   'my-password'
 ]);
 
@@ -49,6 +51,7 @@ const PAGE_TAB_TITLES = {
   'odoo-invoices': 'Odoo Invoices',
   'odoo-settings': 'Odoo Connection',
   users: 'Users',
+  'test-orders': 'Test Orders',
   'my-password': 'Change password'
 };
 
@@ -183,6 +186,8 @@ function AppContent() {
         return <OdooSettingsPage />;
       case 'users':
         return <UsersPage />;
+      case 'test-orders':
+        return <TestOrdersPage />;
       case 'my-password':
         return <ChangePasswordPage />;
       default:

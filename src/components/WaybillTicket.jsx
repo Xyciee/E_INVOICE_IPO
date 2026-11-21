@@ -1,5 +1,11 @@
 import React from 'react';
 
+// Wording next to the QR code. Official BIR wording is added after the PTI.
+const PORTAL_TEXT = {
+  title: 'Scan to view this invoice online',
+  hint: 'Opens your invoice on our website. Keep this slip.'
+};
+
 export default function WaybillTicket({
   platform,
   storeName,
@@ -20,7 +26,9 @@ export default function WaybillTicket({
   buyerTin,
   buyerBranchCode,
   buyerAddress,
-  referenceLines = []
+  referenceLines = [],
+  // Buyer portal: QR code (SVG text from the backend, portal_qr_svg) that opens the invoice online
+  portalQrSvg
 }) {
   const tinBranch = [buyerTin, buyerBranchCode].filter((v) => v && v !== '—').join(' - ');
   return (
@@ -158,6 +166,20 @@ export default function WaybillTicket({
         <span>TOTAL AMOUNT (PHP)</span>
         <span>₱{totalAmount || '0.00'}</span>
       </div>
+
+      {portalQrSvg && (
+        <div className="waybill-portal-box">
+          <img
+            className="waybill-portal-qr"
+            alt="QR code: view this invoice online"
+            src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(portalQrSvg)}`}
+          />
+          <div className="waybill-portal-text">
+            <strong>{PORTAL_TEXT.title}</strong>
+            <span>{PORTAL_TEXT.hint}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
