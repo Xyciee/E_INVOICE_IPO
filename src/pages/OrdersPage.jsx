@@ -13,7 +13,8 @@ import {
   Eye,
   ChevronDown,
   Gauge,
-  MapPin
+  MapPin,
+  FileCheck
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNotify } from '../context/NotificationContext';
@@ -116,6 +117,8 @@ function getTodayManilaKey() {
 export default function OrdersPage({ onNavigate }) {
   const { user } = useAuth();
   const notify = useNotify();
+  const canIssueMissedScan = (user?.permissions || []).includes('issue_missed_scan');
+  const canPrint = (user?.permissions || []).includes('scan_and_print');
   const stationCodes = stationCodesOf(user?.stations);
   const [station, setStation] = useState('');
   const savedStation = getSavedStationCode();
@@ -281,6 +284,92 @@ export default function OrdersPage({ onNavigate }) {
     }
   };
 
+  const hasInvoice = (ord) => Boolean(ord?.documentNumber && ord.documentNumber !== '—');
+
+  /**
+   * Issue the order's invoice without a packing scan (POST /api/orders/.../issue). Never prints.
+   * Returns { id, documentNumber, portalQrSvg } or null (the reason was already shown to the user).
+   */
+  const issueWithoutScan = async (target) => {
+    if (!canIssueMissedScan) {
+      notify.danger('Not allowed', 'Only Order Managers and IT can issue an invoice from this page.');
+      return null;
+    }
+    if (!target.platform || !target.storeId || !target.orderId || target.orderId === '—') {
+      notify.danger('Cannot issue', 'This row has no order to invoice. Refresh the list and try again.');
+      return null;
+    }
+    if (!target.tracking || target.tracking === '—') {
+      notify.danger(
+        'No waybill yet',
+        `Order ${target.orderId} has no waybill number yet. Scan it at the packing station when it is packed.`
+      );
+      return null;
+    }
+    const issueRes = await issueMissedScanOrder(target.platform, target.storeId, target.orderId, {
+      tracking: target.tracking,
+      station: activeStation
+    });
+    if (!issueRes.ok) {
+      notify.danger('Invoice not issued', apiErrorText(issueRes.data, `The server said ${issueRes.status}.`));
+      return null;
+    }
+    if (issueRes.data?.outcome === 'blocked') {
+      notify.danger('Invoice not issued', issueRes.data.problem || 'This order cannot be invoiced yet.');
+      return null;
+    }
+    const issuedNorm = issueRes.data ? normalizeDocumentRecord(issueRes.data) : null;
+    if (!issuedNorm?.id || !issuedNorm.documentNumber || issuedNorm.documentNumber === '—') {
+      notify.danger('Invoice not issued', 'No invoice number came back. Tell IT.');
+      return null;
+    }
+    return {
+      id: issuedNorm.id,
+      documentNumber: issuedNorm.documentNumber,
+      portalQrSvg: issuedNorm.portalQrSvg || null,
+      alreadyIssued: issueRes.data?.outcome === 'already_issued'
+    };
+  };
+
+  /** Issue only: the invoice gets its number, nothing is printed, the order stays on the unprinted list. */
+  const handleIssueOnly = async (ord) => {
+    if (!ord) return;
+    if (hasInvoice(ord)) {
+      showToast(`Order #${ord.orderId} already has invoice ${ord.documentNumber}.`);
+      return;
+    }
+    if (!activeStation) {
+      notify.danger('Choose your station', 'Pick your packing station at the top of this page first.');
+      return;
+    }
+    const hydrated = await hydrateOrderDetails(ord);
+    const target = hydrated || ord;
+    if (hasInvoice(target)) {
+      showToast(`Order #${target.orderId} already has invoice ${target.documentNumber}.`);
+      return;
+    }
+    const issued = await issueWithoutScan(target);
+    if (!issued) return;
+
+    const sameOrder = (item) =>
+      (target.orderId !== '—' && item.orderId === target.orderId && item.platform === target.platform) ||
+      (target.tracking !== '—' && item.tracking === target.tracking);
+    const patch = {
+      id: issued.id,
+      documentNumber: issued.documentNumber,
+      portalQrSvg: issued.portalQrSvg,
+      invoiceState: 'issued'
+    };
+    setOrders((prev) => prev.map((item) => (sameOrder(item) ? { ...item, ...patch } : item)));
+    setSelectedOrder((prev) => (prev && sameOrder(prev) ? { ...prev, ...target, ...patch } : prev));
+
+    showToast(
+      issued.alreadyIssued
+        ? `Order #${target.orderId} already had invoice ${issued.documentNumber}. Nothing was printed.`
+        : `Invoice ${issued.documentNumber} issued for order #${target.orderId}. Not printed - print it later from this list.`
+    );
+  };
+
   const handlePrintAndMoveToTracker = async (ord) => {
     if (!ord) return;
     const hydrated = await hydrateOrderDetails(ord);
@@ -296,33 +385,11 @@ export default function OrdersPage({ onNavigate }) {
     }
 
     if (!issuedDocNumber || issuedDocNumber === '—') {
-      if (!target.platform || !target.storeId || !target.orderId || target.orderId === '—') {
-        notify.danger('Cannot issue', 'This row has no order to invoice. Refresh the list and try again.');
-        return;
-      }
-      if (!target.tracking || target.tracking === '—') {
-        notify.danger(
-          'No waybill yet',
-          `Order ${target.orderId} has no waybill number yet. Scan it at the packing station when it is packed.`
-        );
-        return;
-      }
-      const issueRes = await issueMissedScanOrder(target.platform, target.storeId, target.orderId, {
-        tracking: target.tracking,
-        station: activeStation
-      });
-      if (!issueRes.ok) {
-        notify.danger('Invoice not issued', apiErrorText(issueRes.data, `The server said ${issueRes.status}.`));
-        return;
-      }
-      if (issueRes.data?.outcome === 'blocked') {
-        notify.danger('Invoice not issued', issueRes.data.problem || 'This order cannot be invoiced yet.');
-        return;
-      }
-      const issuedNorm = issueRes.data ? normalizeDocumentRecord(issueRes.data) : null;
-      issuedDocNumber = issuedNorm?.documentNumber;
-      issuedDocId = issuedNorm?.id;
-      portalQrSvg = issuedNorm?.portalQrSvg || null;
+      const issued = await issueWithoutScan(target);
+      if (!issued) return;
+      issuedDocNumber = issued.documentNumber;
+      issuedDocId = issued.id;
+      portalQrSvg = issued.portalQrSvg;
     }
 
     // Never print or "move to tracker" without the real invoice number from the backend.
@@ -974,15 +1041,33 @@ export default function OrdersPage({ onNavigate }) {
                           >
                             <Eye size={13} />
                           </button>
-                          <button
-                            type="button"
-                            className="btn btn-primary"
-                            style={{ padding: '5px 10px', fontSize: '0.74rem', borderRadius: 4 }}
-                            onClick={() => handlePrintAndMoveToTracker(ord)}
-                            title="Print E-Invoice Waybill Ticket"
-                          >
-                            <Printer size={13} />
-                          </button>
+                          {canIssueMissedScan && !hasInvoice(ord) && (
+                            <button
+                              type="button"
+                              className="btn btn-secondary"
+                              style={{ padding: '5px 10px', fontSize: '0.74rem', borderRadius: 4 }}
+                              onClick={() => handleIssueOnly(ord)}
+                              title="Issue invoice only (do not print)"
+                              aria-label="Issue invoice only, do not print"
+                            >
+                              <FileCheck size={13} />
+                            </button>
+                          )}
+                          {canPrint && (hasInvoice(ord) || canIssueMissedScan) && (
+                            <button
+                              type="button"
+                              className="btn btn-primary"
+                              style={{ padding: '5px 10px', fontSize: '0.74rem', borderRadius: 4 }}
+                              onClick={() => handlePrintAndMoveToTracker(ord)}
+                              title={
+                                hasInvoice(ord)
+                                  ? 'Print E-Invoice Waybill Ticket'
+                                  : 'Issue and print E-Invoice Waybill Ticket'
+                              }
+                            >
+                              <Printer size={13} />
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="btn btn-success"
@@ -1215,13 +1300,25 @@ export default function OrdersPage({ onNavigate }) {
               >
                 Close
               </button>
-              <button
-                type="button"
-                className="modal-btn modal-btn-primary"
-                onClick={() => handlePrintAndMoveToTracker(selectedOrder)}
-              >
-                Print E-Invoice &amp; Move to Tracker
-              </button>
+              {canIssueMissedScan && !hasInvoice(selectedOrder) && (
+                <button
+                  type="button"
+                  className="modal-btn modal-btn-secondary"
+                  onClick={() => handleIssueOnly(selectedOrder)}
+                  title="The invoice gets its number now; print it later from this list"
+                >
+                  Issue Invoice (No Print)
+                </button>
+              )}
+              {canPrint && (hasInvoice(selectedOrder) || canIssueMissedScan) && (
+                <button
+                  type="button"
+                  className="modal-btn modal-btn-primary"
+                  onClick={() => handlePrintAndMoveToTracker(selectedOrder)}
+                >
+                  Print E-Invoice &amp; Move to Tracker
+                </button>
+              )}
             </div>
           </aside>
         </div>
