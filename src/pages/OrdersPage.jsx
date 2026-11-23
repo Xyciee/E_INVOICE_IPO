@@ -149,6 +149,8 @@ export default function OrdersPage({ onNavigate }) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState(null);
   const [printableOrder, setPrintableOrder] = useState(null);
+  // Draft invoice shown before a manual issue: { order, mode: 'issue' | 'print', loading, busy }
+  const [issuePreview, setIssuePreview] = useState(null);
 
   const todayKey = getTodayManilaKey();
 
@@ -368,6 +370,65 @@ export default function OrdersPage({ onNavigate }) {
         ? `Order #${target.orderId} already had invoice ${issued.documentNumber}. Nothing was printed.`
         : `Invoice ${issued.documentNumber} issued for order #${target.orderId}. Not printed - print it later from this list.`
     );
+  };
+
+  /**
+   * Before a manual issue: show the draft invoice (lines, discounts, VAT, total) and let the person confirm.
+   * mode 'issue' = issue only, 'print' = issue and print. An order that already has an invoice skips the preview.
+   */
+  const openIssuePreview = async (ord, mode) => {
+    if (!ord) return;
+    if (hasInvoice(ord)) {
+      if (mode === 'print') handlePrintAndMoveToTracker(ord);
+      else showToast(`Order #${ord.orderId} already has invoice ${ord.documentNumber}.`);
+      return;
+    }
+    if (!activeStation) {
+      notify.danger('Choose your station', 'Pick your packing station at the top of this page first.');
+      return;
+    }
+    setIssuePreview({ order: ord, mode, loading: true });
+    // The live draft (invoicing.invoiceable_orders + invoiceable_lines) is exactly what issuing will store.
+    let target = { ...ord };
+    let loadError = null;
+    if (ord.platform && ord.storeId && ord.orderId && ord.orderId !== '—') {
+      const res = await fetchOrderDraft(ord.platform, ord.storeId, ord.orderId);
+      const draft = res?.ok ? res.data?.draft : null;
+      if (draft) {
+        const norm = normalizeDocumentRecord({ ...res.data, order: draft });
+        const money = (v, fallback) => (v === null || v === undefined || v === '' ? fallback : String(v));
+        target = {
+          ...target,
+          lines: norm?.lines?.length ? norm.lines : [],
+          discountAmount: money(draft.discount_total, target.discountAmount),
+          vatableSales: money(draft.vatable_sales, target.vatableSales),
+          vatAmount: money(draft.vat_amount, target.vatAmount),
+          vatExemptSales: money(draft.non_vat_sales, target.vatExemptSales),
+          totalAmount: money(draft.total_amount, target.totalAmount),
+          invoiceState: String(draft.state || '').toLowerCase(),
+          holdReason: draft.hold_reason || null,
+          documentNumber: draft.invoice_number || target.documentNumber,
+          id: draft.invoice_id || target.id
+        };
+      } else {
+        loadError = apiErrorText(res?.data, 'The invoice preview could not be loaded.');
+      }
+    }
+    setIssuePreview((prev) =>
+      prev && prev.order === ord ? { order: target, mode, loading: false, loadError } : prev
+    );
+  };
+
+  const confirmIssuePreview = async () => {
+    if (!issuePreview || issuePreview.loading || issuePreview.busy) return;
+    const { order, mode } = issuePreview;
+    setIssuePreview((prev) => (prev ? { ...prev, busy: true } : prev));
+    try {
+      if (mode === 'print') await handlePrintAndMoveToTracker(order);
+      else await handleIssueOnly(order);
+    } finally {
+      setIssuePreview(null);
+    }
   };
 
   const handlePrintAndMoveToTracker = async (ord) => {
@@ -1046,7 +1107,7 @@ export default function OrdersPage({ onNavigate }) {
                               type="button"
                               className="btn btn-secondary"
                               style={{ padding: '5px 10px', fontSize: '0.74rem', borderRadius: 4 }}
-                              onClick={() => handleIssueOnly(ord)}
+                              onClick={() => openIssuePreview(ord, 'issue')}
                               title="Issue invoice only (do not print)"
                               aria-label="Issue invoice only, do not print"
                             >
@@ -1058,7 +1119,7 @@ export default function OrdersPage({ onNavigate }) {
                               type="button"
                               className="btn btn-primary"
                               style={{ padding: '5px 10px', fontSize: '0.74rem', borderRadius: 4 }}
-                              onClick={() => handlePrintAndMoveToTracker(ord)}
+                              onClick={() => openIssuePreview(ord, 'print')}
                               title={
                                 hasInvoice(ord)
                                   ? 'Print E-Invoice Waybill Ticket'
@@ -1304,7 +1365,7 @@ export default function OrdersPage({ onNavigate }) {
                 <button
                   type="button"
                   className="modal-btn modal-btn-secondary"
-                  onClick={() => handleIssueOnly(selectedOrder)}
+                  onClick={() => { const o = selectedOrder; setSelectedOrder(null); openIssuePreview(o, 'issue'); }}
                   title="The invoice gets its number now; print it later from this list"
                 >
                   Issue Invoice (No Print)
@@ -1314,7 +1375,7 @@ export default function OrdersPage({ onNavigate }) {
                 <button
                   type="button"
                   className="modal-btn modal-btn-primary"
-                  onClick={() => handlePrintAndMoveToTracker(selectedOrder)}
+                  onClick={() => { const o = selectedOrder; setSelectedOrder(null); openIssuePreview(o, 'print'); }}
                 >
                   Print E-Invoice &amp; Move to Tracker
                 </button>
@@ -1323,6 +1384,128 @@ export default function OrdersPage({ onNavigate }) {
           </aside>
         </div>
       )}
+
+      {/* Invoice preview before a manual issue (draft: no number yet, nothing stored) */}
+      {issuePreview && (() => {
+        const po = issuePreview.order;
+        const state = String(po.invoiceState || '').toLowerCase();
+        const realLines = Array.isArray(po.lines) ? po.lines : [];
+        const loadError = !issuePreview.loading ? issuePreview.loadError : null;
+        const blocked = !issuePreview.loading && (Boolean(loadError) || (state && state !== 'due'));
+        const noLines = !issuePreview.loading && realLines.length === 0;
+        const isPrint = issuePreview.mode === 'print';
+        const close = () => !issuePreview.busy && setIssuePreview(null);
+        return (
+          <div className="scan-modal-backdrop no-print" onClick={close}>
+            <div
+              className="doc-modal-card"
+              style={{ maxWidth: '520px' }}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Invoice preview"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="doc-modal-header">
+                <div>
+                  <h2
+                    className="card-section-title"
+                    style={{ fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px' }}
+                  >
+                    <Eye size={17} color="var(--primary)" />
+                    Invoice preview - order #{po.orderId}
+                  </h2>
+                  <p className="page-subtitle" style={{ margin: '4px 0 0 0' }}>
+                    Check the items and totals. The invoice number is given only when you press
+                    {isPrint ? ' Issue and print' : ' Issue invoice'}. An issued invoice cannot be changed or deleted.
+                  </p>
+                </div>
+              </div>
+
+              {issuePreview.loading ? (
+                <p style={{ margin: '16px 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  Loading the invoice preview...
+                </p>
+              ) : (
+                <>
+                  {blocked && (
+                    <div
+                      style={{
+                        margin: '12px 0',
+                        padding: '10px 12px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid #f59e0b',
+                        background: 'rgba(245, 158, 11, 0.12)',
+                        fontSize: '0.82rem'
+                      }}
+                    >
+                      {loadError ? (
+                        <strong>{loadError} Nothing was issued. Close and try again.</strong>
+                      ) : state === 'issued' ? (
+                        <strong>
+                          This order already has invoice {po.documentNumber}. Nothing new will be issued; refresh
+                          the list.
+                        </strong>
+                      ) : (
+                        <>
+                          <strong>This order cannot be invoiced yet ({state.replace(/_/g, ' ')}).</strong>
+                          {po.holdReason ? <div style={{ marginTop: '4px' }}>{po.holdReason}</div> : null}
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {noLines && !blocked && (
+                    <div
+                      style={{
+                        margin: '12px 0',
+                        padding: '10px 12px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid #f59e0b',
+                        background: 'rgba(245, 158, 11, 0.12)',
+                        fontSize: '0.82rem'
+                      }}
+                    >
+                      The item lines could not be loaded, so the preview shows totals only. Close and try again, or
+                      issue anyway if the totals are right.
+                    </div>
+                  )}
+                  <div style={{ maxHeight: '60vh', overflowY: 'auto', margin: '12px 0' }}>
+                    <WaybillTicket
+                      platform={po.platform || 'Marketplace'}
+                      storeName={po.storeName || 'Official Store'}
+                      copyTag="PREVIEW"
+                      invoiceNumber="Given when issued"
+                      orderId={po.orderId || '—'}
+                      lines={realLines}
+                      discountAmount={po.discountAmount || '0.00'}
+                      vatableSales={po.vatableSales || '0.00'}
+                      vatAmount={po.vatAmount || '0.00'}
+                      vatExemptSales={po.vatExemptSales || '0.00'}
+                      zeroRatedSales={po.zeroRatedSales || '0.00'}
+                      totalAmount={po.totalAmount || '0.00'}
+                    />
+                  </div>
+                </>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                <button type="button" className="btn btn-secondary" onClick={close} disabled={issuePreview.busy}>
+                  Cancel
+                </button>
+                {!blocked && (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={confirmIssuePreview}
+                    disabled={issuePreview.loading || issuePreview.busy}
+                  >
+                    {issuePreview.busy ? 'Issuing...' : isPrint ? 'Issue and print' : 'Issue invoice'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Hidden Printable 100x150mm Waybill Slip */}
       {printableOrder && (
