@@ -17,6 +17,7 @@ import OdooInvoicesPage from './pages/OdooInvoicesPage';
 import OdooSettingsPage from './pages/OdooSettingsPage';
 import UsersPage from './pages/UsersPage';
 import TestOrdersPage from './pages/TestOrdersPage';
+import MissedScansPage from './pages/MissedScansPage';
 import ChangePasswordPage, { RequiredPasswordChange } from './pages/ChangePasswordPage';
 import ErrorBoundary from './components/feedback/ErrorBoundary';
 
@@ -26,6 +27,7 @@ const VALID_PAGES = new Set([
   'dashboard',
   'packing-scan',
   'orders',
+  'missed-scans',
   'invoices',
   'credit-notes',
   'settings',
@@ -43,6 +45,7 @@ const PAGE_TAB_TITLES = {
   dashboard: 'Dashboard',
   'packing-scan': 'Packing Scan',
   orders: 'Orders',
+  'missed-scans': 'Missed Scans',
   invoices: 'Invoices Tracker',
   'credit-notes': 'Credit Notes',
   settings: 'Settings',
@@ -170,6 +173,8 @@ function AppContent() {
         return <PackingScanPage />;
       case 'orders':
         return <OrdersPage onNavigate={setActivePage} />;
+      case 'missed-scans':
+        return <MissedScansPage onNavigate={setActivePage} />;
       case 'invoices':
         return <InvoicesPage />;
       case 'credit-notes':

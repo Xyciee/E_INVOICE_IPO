@@ -1456,6 +1456,8 @@ export default function InvoicesPage() {
                   zeroRatedSales={reprintModalDoc.zeroRatedSales || '0.00'}
                   totalAmount={reprintModalDoc.totalAmount || '0.00'}
                   portalQrSvg={reprintModalDoc.portalQrSvg}
+                  printout={reprintModalDoc.printout}
+                  buyerPaidAmount={reprintModalDoc.buyerPaidAmount}
                 />
               </div>
             </div>
@@ -1488,6 +1490,8 @@ export default function InvoicesPage() {
             zeroRatedSales={printableDoc.zeroRatedSales || '0.00'}
             totalAmount={printableDoc.totalAmount || '0.00'}
             portalQrSvg={printableDoc.portalQrSvg}
+            printout={printableDoc.printout}
+            buyerPaidAmount={printableDoc.buyerPaidAmount}
           />
         </div>
       )}

@@ -1288,11 +1288,12 @@ export default function PackingScanPage() {
                   zeroRatedSales={displayDoc?.zeroRatedSales || '0.00'}
                   totalAmount={
                     displayDoc?.totalAmount ||
-                    activeOrder?.total_amount ||
                     activeInvoice?.total_amount ||
                     '0.00'
                   }
                   portalQrSvg={displayDoc?.portalQrSvg}
+                  printout={displayDoc?.printout}
+                  buyerPaidAmount={displayDoc?.buyerPaidAmount}
                 />
               </div>
 
@@ -1323,8 +1324,14 @@ export default function PackingScanPage() {
                         Order #{displayDoc?.orderId && displayDoc.orderId !== '—' ? displayDoc.orderId : activeOrder?.order_id || tracking}
                       </div>
                       <div className="page-subtitle" style={{ marginTop: '4px' }}>
-                        Waybill: {tracking} · Total: ₱{displayDoc?.totalAmount || '0.00'}
+                        Waybill: {tracking} · Invoice total: ₱{displayDoc?.totalAmount || '0.00'}
+                        {displayDoc?.vatAmount ? ` (VAT ₱${displayDoc.vatAmount})` : ''}
                       </div>
+                      {displayDoc?.buyerPaidAmount && displayDoc.buyerPaidAmount !== displayDoc.totalAmount && (
+                        <div className="page-subtitle" style={{ marginTop: '2px', fontSize: '0.78rem' }}>
+                          Buyer paid ₱{displayDoc.buyerPaidAmount} (shipping and platform vouchers included; not printed as the total)
+                        </div>
+                      )}
                     </div>
 
                     <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
@@ -1523,6 +1530,8 @@ export default function PackingScanPage() {
                   vatExemptSales={standbyPreviewDoc.vatExemptSales || '0.00'}
                   zeroRatedSales={standbyPreviewDoc.zeroRatedSales || '0.00'}
                   totalAmount={standbyPreviewDoc.totalAmount || '0.00'}
+                  printout={standbyPreviewDoc.printout}
+                  buyerPaidAmount={standbyPreviewDoc.buyerPaidAmount}
                 />
               </div>
 
@@ -2057,9 +2066,14 @@ export default function PackingScanPage() {
                         12% VAT: <strong>₱{displayDoc.vatAmount}</strong>
                       </span>
                       <span>
-                        Total: <strong style={{ color: 'var(--primary)' }}>₱{displayDoc.totalAmount}</strong>
+                        Invoice total: <strong style={{ color: 'var(--primary)' }}>₱{displayDoc.totalAmount}</strong>
                       </span>
                     </div>
+                    {displayDoc.buyerPaidAmount && displayDoc.buyerPaidAmount !== displayDoc.totalAmount && (
+                      <div style={{ marginTop: '2px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                        Buyer paid ₱{displayDoc.buyerPaidAmount}
+                      </div>
+                    )}
                   </div>
                 )}
                 {activeInvoice && (
@@ -2250,6 +2264,12 @@ export default function PackingScanPage() {
                       ₱{displayDoc.totalAmount || '0.00'}
                     </span>
                   </div>
+                  {displayDoc.buyerPaidAmount && displayDoc.buyerPaidAmount !== displayDoc.totalAmount && (
+                    <div className="totals-row" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      <span>Buyer paid (information)</span>
+                      <span className="num-target">₱{displayDoc.buyerPaidAmount}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -2342,11 +2362,12 @@ export default function PackingScanPage() {
             totalAmount={
               printableDoc._normalized?.totalAmount ||
               printableDoc.total_amount ||
-              printableDoc._orderFallback?.total_amount ||
               displayDoc?.totalAmount ||
               '0.00'
             }
             portalQrSvg={printableDoc._normalized?.portalQrSvg || printableDoc.portal_qr_svg}
+            printout={printableDoc._normalized?.printout || printableDoc.printout}
+            buyerPaidAmount={printableDoc._normalized?.buyerPaidAmount}
           />
         </div>
       )}

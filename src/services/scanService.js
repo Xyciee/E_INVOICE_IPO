@@ -659,7 +659,9 @@ export function normalizeOrderLine(line, idx = 0) {
 
 export function normalizeDocumentRecord(raw) {
   if (!raw) return null;
-  const doc = raw.header || raw.document || raw.invoice || raw;
+  // A draft response ({draft, lines}) is read like a document: its totals are the INVOICE totals (item value - seller
+  // discounts). The scan order (raw.order) carries what the buyer paid, which is information only (brief 2026-11-25).
+  const doc = raw.header || raw.document || raw.invoice || raw.draft || raw;
   const order = raw.order || doc.order || raw.draft || {};
   const totals = raw.totals || doc.totals || order.totals || {};
 
@@ -980,6 +982,16 @@ export function normalizeDocumentRecord(raw) {
     lines,
     prints,
     creditNotes,
+    // Printout rules from the backend (2026-11-25): buyer block ({show, name, address, tin_branch}; blank for the
+    // generic marketplace buyer) and what the buyer paid on the platform (information line, never the total)
+    printout: raw.printout || null,
+    buyerPaidAmount: (() => {
+      const paid = raw.printout?.buyer_paid_amount ?? raw.invoice_totals?.buyer_paid_amount ??
+        (doc !== order && order.total_amount != null ? order.total_amount : null);
+      const num = toMoneyNumber(paid);
+      return Number.isFinite(num) ? formatMoney(num, String(paid)) : null;
+    })(),
+    platformVoucherAmount: raw.printout?.platform_voucher_amount ?? null,
     // Buyer portal (2026-11-21): QR code printed on the invoice -> public page with the invoice
     portalUrl: raw.portal_url || doc.portal_url || null,
     portalQrSvg: raw.portal_qr_svg || doc.portal_qr_svg || null,
@@ -1230,6 +1242,7 @@ export function savePrintedInvoiceRecord(
 
   // The QR picture is fetched again with the document; never kept in the browser.
   delete entry.portalQrSvg;
+  delete entry.printout; // buyer details: fetched again with the document, never kept in the browser
   if (entry.raw && entry.raw.portal_qr_svg) entry.raw = { ...entry.raw, portal_qr_svg: null };
 
   const updated =

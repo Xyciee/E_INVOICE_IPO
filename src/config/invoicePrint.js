@@ -29,3 +29,24 @@ export const ODOO_INVOICE_TEXT = {
   // next to the QR code (buyer portal) printed on e-invoices
   portalLine: 'Scan to view this invoice online.'
 };
+
+/**
+ * Texts printed on the 100x150 mm slip (marketplace and Odoo e-invoices, WaybillTicket). User decisions 2026-11-25:
+ * the buyer block prints blank for the generic marketplace buyer ("Shopee Buyer"); the platform voucher and the
+ * amount paid by the buyer are an information line below the total, outside the VAT figures.
+ */
+export const SLIP_TEXT = {
+  soldTo: 'Sold To',
+  address: 'Address',
+  tinBranch: 'TIN - Branch',
+  // {platform} = Shopee / Lazada / TikTok. Printed only when the platform voucher amount is known.
+  platformVoucher: 'Platform voucher (paid by {platform})',
+  buyerPaid: 'Amount paid by buyer',
+  // next to the QR code (buyer portal). Official BIR wording is added after the PTI.
+  portalTitle: 'Scan to view this invoice online',
+  portalHint: 'Opens your invoice on our website. Keep this slip.'
+};
+
+const PLATFORM_NAMES = { shopee: 'Shopee', lazada: 'Lazada', tiktok: 'TikTok' };
+export const platformName = (platform) =>
+  PLATFORM_NAMES[String(platform || '').toLowerCase()] || String(platform || '').trim() || 'the platform';

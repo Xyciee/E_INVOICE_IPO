@@ -1180,6 +1180,14 @@
   font-size: 0.92rem;
 }
 
+/* Information under the total, outside the VAT figures: platform voucher / amount paid by buyer (2026-11-25) */
+.waybill-info-box {
+  padding: 4px 10px;
+  border-bottom: 1px dashed #cbd5e1;
+  font-size: 0.66rem;
+  color: #334155;
+}
+
 /* Buyer portal QR code under the total (kept small: the slip is 100 x 150 mm) */
 .waybill-portal-box {
   display: flex;
