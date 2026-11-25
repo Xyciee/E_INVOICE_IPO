@@ -1,10 +1,18 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { PackageX, RefreshCw } from 'lucide-react';
+import { Eye, PackageX, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { useConfirm, useNotify } from '../context/NotificationContext';
+import { useNotify } from '../context/NotificationContext';
 import { api } from '../services/apiClient.js';
 import { errorText, formatDateTime } from '../services/odooService';
-import { getSavedStationCode, issueMissedScanOrder, stationCodesOf } from '../services/scanService';
+import {
+  fetchDocumentDetails,
+  fetchOrderDraft,
+  getSavedStationCode,
+  issueMissedScanOrder,
+  normalizeDocumentRecord,
+  stationCodesOf
+} from '../services/scanService';
+import WaybillTicket from '../components/WaybillTicket';
 import './pages.css';
 import './odoo.css';
 
@@ -14,6 +22,8 @@ import './odoo.css';
  *   POST /api/orders/<p>/<s>/<o>/issue    (issue_missed_scan: Order Manager, IT) for "due" rows only
  * "hold" rows show the reason from the database and have no button: a person must look first. The box has left,
  * so delivery is electronic (QR / buyer portal); the invoice is then in the Invoices Tracker like any other.
+ * Every row opens an invoice preview (the live draft, GET /api/orders/<p>/<s>/<o>/draft); Issue invoice is pressed
+ * there, and the dialog then shows the issued invoice with its number and QR code (user request 2026-11-25).
  */
 
 const STATE_CHIP = {
@@ -25,15 +35,18 @@ const PLATFORM_NAMES = { shopee: 'Shopee', lazada: 'Lazada', tiktok: 'TikTok' };
 
 const rowKey = (r) => `${r.platform}:${r.store_id}:${r.platform_order_id}`;
 
+// What the slip shows for a marketplace order before issuing: the generic buyer prints blank (decision 2026-11-25).
+const BLANK_BUYER = { buyer: { show: false, name: '', address: '', tin_branch: '' } };
+
 export default function MissedScansPage({ onNavigate }) {
   const { user } = useAuth();
   const notify = useNotify();
-  const confirm = useConfirm();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [stateFilter, setStateFilter] = useState('');
-  const [busyKey, setBusyKey] = useState('');
+  // {row, phase: 'loading' | 'draft' | 'issuing' | 'issued', doc, state, holdReason, loadError, problem}
+  const [preview, setPreview] = useState(null);
 
   const stationCodes = stationCodesOf(user?.stations);
   const savedStation = getSavedStationCode();
@@ -55,39 +68,55 @@ export default function MissedScansPage({ onNavigate }) {
     load();
   }, [load]);
 
-  const issue = async (row) => {
+  const openPreview = async (row) => {
+    setPreview({ row, phase: 'loading' });
+    const res = await fetchOrderDraft(row.platform, row.store_id, row.platform_order_id);
+    const draft = res?.ok ? res.data?.draft : null;
+    if (!draft) {
+      const loadError = errorText(res, 'The invoice preview could not be loaded.');
+      setPreview((p) => (p && p.row === row ? { row, phase: 'draft', loadError } : p));
+      return;
+    }
+    const doc = normalizeDocumentRecord(res.data);
+    const state = String(draft.state || '').toLowerCase();
+    setPreview((p) => (p && p.row === row ? { row, phase: 'draft', doc, state, holdReason: draft.hold_reason } : p));
+  };
+
+  const issueFromPreview = async () => {
+    const row = preview?.row;
+    if (!row || preview.phase !== 'draft') return;
     if (!station) {
       notify.danger('No station', 'Your account has no packing station. Ask IT to add one, then try again.');
       return;
     }
-    const ok = await confirm({
-      title: `Issue the invoice for order ${row.platform_order_id}?`,
-      message:
-        `The parcel (waybill ${row.tracking_number || '—'}) has already left. The invoice gets its number now ` +
-        `(invoice total ₱${row.total_amount}) and the buyer sees it through the QR link. An invoice cannot be undone.`,
-      confirmText: 'Issue invoice',
-      variant: 'warning'
-    });
-    if (!ok) return;
-    setBusyKey(rowKey(row));
+    setPreview((p) => ({ ...p, phase: 'issuing', problem: null }));
     const res = await issueMissedScanOrder(row.platform, row.store_id, row.platform_order_id, {
       tracking: row.tracking_number,
       station
     });
-    setBusyKey('');
     const outcome = res.data?.outcome;
     if (res.ok && (outcome === 'issued' || outcome === 'already_issued')) {
-      const number = res.data?.document?.document_number || '';
+      const issuedId = res.data?.document?.id;
+      // Read the issued document again: real number, QR code and the printout rules (buyer block, buyer paid).
+      const detail = issuedId ? await fetchDocumentDetails(issuedId) : null;
+      const doc = normalizeDocumentRecord(detail?.ok && detail.data ? detail.data : res.data);
+      setPreview((p) => ({ ...p, phase: 'issued', doc, alreadyIssued: outcome === 'already_issued' }));
       notify.success(
         outcome === 'issued' ? 'Invoice issued' : 'Already invoiced',
-        `${number} for order ${row.platform_order_id}. It is in the Invoices Tracker for printing or sending.`
+        `${doc?.documentNumber || ''} for order ${row.platform_order_id}.`
       );
-    } else if (outcome === 'blocked') {
-      notify.danger('Invoice not issued', res.data?.problem || 'This order cannot be invoiced yet.');
     } else {
-      notify.danger('Invoice not issued', errorText(res, 'The server did not issue the invoice. Try again.'));
+      const problem = outcome === 'blocked'
+        ? res.data?.problem || 'This order cannot be invoiced yet.'
+        : errorText(res, 'The server did not issue the invoice. Try again.');
+      setPreview((p) => ({ ...p, phase: 'draft', problem }));
+      notify.danger('Invoice not issued', problem);
     }
     load();
+  };
+
+  const closePreview = () => {
+    if (preview?.phase !== 'issuing') setPreview(null);
   };
 
   const rows = data?.results || [];
@@ -173,13 +202,16 @@ export default function MissedScansPage({ onNavigate }) {
                       </td>
                       <td>
                         {r.state === 'due' && canIssue ? (
-                          <button className="btn btn-primary" onClick={() => issue(r)} disabled={busyKey === key}>
-                            {busyKey === key ? 'Issuing…' : 'Issue invoice'}
+                          <button className="btn btn-primary" onClick={() => openPreview(r)}>
+                            Issue invoice…
                           </button>
-                        ) : r.state === 'hold' ? (
-                          <span className="odoo-muted">Look at the reason first</span>
                         ) : (
-                          <span className="odoo-muted">—</span>
+                          <button className="btn btn-outline" onClick={() => openPreview(r)}>
+                            <Eye size={14} /> Preview
+                          </button>
+                        )}
+                        {r.state === 'hold' && (
+                          <div className="odoo-muted" style={{ marginTop: 4 }}>Look at the reason first</div>
                         )}
                       </td>
                     </tr>
@@ -203,6 +235,112 @@ export default function MissedScansPage({ onNavigate }) {
           )}
         </div>
       )}
+
+      {preview && (
+        <PreviewDialog
+          preview={preview}
+          canIssue={canIssue}
+          onIssue={issueFromPreview}
+          onClose={closePreview}
+          onOpenTracker={onNavigate ? () => { setPreview(null); onNavigate('invoices'); } : null}
+        />
+      )}
+    </div>
+  );
+}
+
+const WARN_BOX = {
+  margin: '12px 0', padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid #f59e0b',
+  background: 'rgba(245, 158, 11, 0.12)', fontSize: '0.82rem'
+};
+
+/*
+ * Invoice preview for one missed-scan order. Before issuing: the live draft (exactly what issuing will store), with
+ * the buyer block blank like the printout. After issuing: the issued invoice (number, QR code, amount paid by buyer).
+ */
+function PreviewDialog({ preview, canIssue, onIssue, onClose, onOpenTracker }) {
+  const { row, phase, doc, loadError, problem } = preview;
+  const issued = phase === 'issued';
+  const state = issued ? 'issued' : preview.state || row.state;
+  const showIssue = canIssue && !issued && !loadError && state === 'due' && (phase === 'draft' || phase === 'issuing');
+  const reason = preview.holdReason || row.hold_reason;
+  let subtitle;
+  if (issued) {
+    subtitle = preview.alreadyIssued
+      ? 'This order already had this invoice. Nothing new was issued.'
+      : 'Issued. The buyer can open it through the QR link; it is also in the Invoices Tracker.';
+  } else {
+    subtitle = `Waybill ${row.tracking_number || '—'} has already left. Check the items and totals; the invoice ` +
+      'number is given only when you press Issue invoice. An issued invoice cannot be changed or deleted.';
+  }
+  return (
+    <div className="scan-modal-backdrop no-print" onClick={onClose}>
+      <div className="doc-modal-card" style={{ maxWidth: '520px' }} role="dialog" aria-modal="true"
+        aria-label="Invoice preview" onClick={(e) => e.stopPropagation()}>
+        <div className="doc-modal-header">
+          <div>
+            <h2 className="card-section-title"
+              style={{ fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Eye size={17} color="var(--primary)" />
+              {issued ? `Invoice ${doc?.documentNumber || ''}` : `Invoice preview - order ${row.platform_order_id}`}
+            </h2>
+            <p className="page-subtitle" style={{ margin: '4px 0 0 0' }}>{subtitle}</p>
+          </div>
+        </div>
+
+        {phase === 'loading' ? (
+          <p style={{ margin: '16px 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+            Loading the invoice preview...
+          </p>
+        ) : (
+          <>
+            {loadError && <div style={WARN_BOX}><strong>{loadError} Nothing was issued. Close and try again.</strong></div>}
+            {problem && <div style={WARN_BOX}><strong>Not issued:</strong> {problem}</div>}
+            {!issued && !loadError && state !== 'due' && (
+              <div style={WARN_BOX}>
+                <strong>This order cannot be invoiced yet ({String(state).replace(/_/g, ' ')}).</strong>
+                {reason && <div style={{ marginTop: '4px' }}>{reason}</div>}
+              </div>
+            )}
+            {doc && (
+              <div style={{ maxHeight: '60vh', overflowY: 'auto', margin: '12px 0' }}>
+                <WaybillTicket
+                  platform={doc.platform || row.platform}
+                  storeName={doc.storeName || row.store_name}
+                  copyTag={issued ? 'ORIGINAL' : 'PREVIEW'}
+                  invoiceNumber={issued ? doc.documentNumber : 'Given when issued'}
+                  issuedAt={issued ? doc.issuedAt : ''}
+                  orderId={row.platform_order_id}
+                  lines={doc.lines || []}
+                  discountAmount={doc.discountAmount || '0.00'}
+                  vatableSales={doc.vatableSales || '0.00'}
+                  vatAmount={doc.vatAmount || '0.00'}
+                  vatExemptSales={doc.vatExemptSales || '0.00'}
+                  zeroRatedSales={doc.zeroRatedSales || '0.00'}
+                  totalAmount={doc.totalAmount || '0.00'}
+                  portalQrSvg={issued ? doc.portalQrSvg : null}
+                  printout={issued && doc.printout ? doc.printout : BLANK_BUYER}
+                  buyerPaidAmount={issued ? doc.buyerPaidAmount : null}
+                />
+              </div>
+            )}
+          </>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+          {issued && onOpenTracker && (
+            <button type="button" className="btn btn-outline" onClick={onOpenTracker}>Open Invoices Tracker</button>
+          )}
+          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={phase === 'issuing'}>
+            Close
+          </button>
+          {showIssue && (
+            <button type="button" className="btn btn-primary" onClick={onIssue} disabled={phase === 'issuing'}>
+              {phase === 'issuing' ? 'Issuing...' : 'Issue invoice'}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
