@@ -34,6 +34,7 @@ import {
 } from '../services/scanService';
 import WaybillTicket from '../components/WaybillTicket';
 import PlatformBadge from '../components/PlatformBadge';
+import { SLIP_TEXT } from '../config/invoicePrint';
 import './pages.css';
 
 const FILTER_TABS = ['All Unprinted', "Today's Orders", 'TikTok', 'Shopee', 'Lazada'];
@@ -1318,7 +1319,7 @@ export default function OrdersPage({ onNavigate }) {
                           <td className="num-target">₱{line.unitPrice}</td>
                           <td className="num-target">₱{line.vatAmount}</td>
                           <td className="num-target" style={{ fontWeight: 700 }}>
-                            ₱{line.lineTotal}
+                            ₱{line.grossAmount || line.lineTotal}
                           </td>
                         </tr>
                       </tbody>
@@ -1332,7 +1333,7 @@ export default function OrdersPage({ onNavigate }) {
                 <div className="section-title">Tax Valuation &amp; Settlement</div>
                 <div className="totals-box">
                   <div className="totals-row discount">
-                    <span>Discount / Voucher</span>
+                    <span>{SLIP_TEXT.discount}</span>
                     <span className="num-target">-₱{selectedOrder.discountAmount || '0.00'}</span>
                   </div>
                   <div className="totals-row">

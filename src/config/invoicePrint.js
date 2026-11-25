@@ -36,6 +36,9 @@ export const ODOO_INVOICE_TEXT = {
  * amount paid by the buyer are an information line below the total, outside the VAT figures.
  */
 export const SLIP_TEXT = {
+  // Seller-funded discounts only (seller vouchers, bundle deals, Shopee bundle rounding). Item lines show quantity x
+  // price before discount; this line is taken off once, so items - discount = total.
+  discount: 'Less: Discount',
   soldTo: 'Sold To',
   address: 'Address',
   tinBranch: 'TIN - Branch',
