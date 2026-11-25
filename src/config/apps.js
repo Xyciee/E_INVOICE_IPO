@@ -1,5 +1,6 @@
 import {
-  LayoutDashboard, ScanLine, ShoppingCart, Receipt, FileMinus, Gauge, CloudDownload, PlugZap, Users, FlaskConical
+  LayoutDashboard, ScanLine, ShoppingCart, Receipt, FileMinus, Gauge, CloudDownload, PlugZap, Users, FlaskConical,
+  PackageX
 } from 'lucide-react';
 
 /*
@@ -15,6 +16,9 @@ export const APPS = [
     permission: 'scan_and_print', hint: 'Scan the waybill, then print the invoice for the box.' },
   { id: 'orders', label: 'Orders', group: 'Transactions & Billing', icon: ShoppingCart, color: '#f59e0b',
     permission: 'view_prepack', hint: "Today's orders, problems to fix before packing, missed scans." },
+  // 2026-11-25: everyone with view_documents sees the list; only issue_missed_scan (Order Manager, IT) gets the button
+  { id: 'missed-scans', label: 'Missed Scans', group: 'Transactions & Billing', icon: PackageX, color: '#ea580c',
+    permission: 'view_documents', hint: 'Parcels the courier picked up without an e-invoice.' },
   { id: 'invoices', label: 'Invoices Tracker', group: 'Transactions & Billing', icon: Receipt, color: '#8b5cf6',
     permission: 'view_documents', hint: 'Find an invoice and see if it was printed.' },
   { id: 'credit-notes', label: 'Credit Notes', group: 'Transactions & Billing', icon: FileMinus, color: '#f43f5e',

@@ -13,7 +13,8 @@ import {
   ScanLine,
   ShoppingBag,
   TrendingUp,
-  X
+  X,
+  PackageX
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { canOpen } from '../config/apps';
@@ -450,6 +451,9 @@ export default function DashboardPage({ onNavigate }) {
   const { user } = useAuth();
   // only for people whose role opens Packing Scan (scan_and_print); for the others the button would do nothing
   const canScan = canOpen(user, 'packing-scan');
+  // Missed scans tile (2026-11-25): only for people who can open the Missed Scans screen
+  const canSeeMissed = canOpen(user, 'missed-scans');
+  const [missedCount, setMissedCount] = useState(null);
   const [loading, setLoading] = useState(true);
   const [warning, setWarning] = useState('');
   const [invoices, setInvoices] = useState([]);
@@ -498,6 +502,17 @@ export default function DashboardPage({ onNavigate }) {
   useEffect(() => {
     loadDashboard();
   }, [loadDashboard]);
+
+  useEffect(() => {
+    if (!canSeeMissed) return undefined;
+    let alive = true;
+    api.get('/api/missed-scans').then((res) => {
+      if (alive && res?.ok && res.data?.available) setMissedCount(res.data.totals?.count ?? 0);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [canSeeMissed]);
 
   const combined = useMemo(
     () => [...invoices, ...prepackOrders],
@@ -667,6 +682,16 @@ export default function DashboardPage({ onNavigate }) {
                   onClick={() => onNavigate('packing-scan')}
                 >
                   <ScanLine size={15} /> Open Scan Station <ArrowRight size={14} />
+                </button>
+              )}
+              {onNavigate && canSeeMissed && missedCount !== null && (
+                <button
+                  className="dash-btn dash-btn-white"
+                  type="button"
+                  onClick={() => onNavigate('missed-scans')}
+                  title="Parcels the courier picked up without an e-invoice"
+                >
+                  <PackageX size={15} /> Missed scans: {missedCount} <ArrowRight size={14} />
                 </button>
               )}
             </div>
