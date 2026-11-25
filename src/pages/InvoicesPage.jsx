@@ -33,6 +33,7 @@ import {
 } from '../services/scanService';
 import WaybillTicket from '../components/WaybillTicket';
 import PlatformBadge from '../components/PlatformBadge';
+import { SLIP_TEXT } from '../config/invoicePrint';
 import './pages.css';
 
 const FILTER_TABS = ['All Documents', 'Shopee', 'Lazada', 'TikTok', 'Pre-Pack Orders', 'Reprinted'];
@@ -1232,7 +1233,7 @@ export default function InvoicesPage() {
                               ₱{parseFloat(line.vatAmount || line.vat_amount || 0).toFixed(2)}
                             </td>
                             <td className="num-target" style={{ fontWeight: 700 }}>
-                              ₱{parseFloat(line.lineTotal || line.line_total || line.total_amount || 0).toFixed(2)}
+                              ₱{parseFloat(line.grossAmount || line.lineTotal || line.line_total || line.total_amount || 0).toFixed(2)}
                             </td>
                           </tr>
                         </tbody>
@@ -1246,7 +1247,7 @@ export default function InvoicesPage() {
                 <div className="section-title">Tax Valuation &amp; Settlement</div>
                 <div className="totals-box">
                   <div className="totals-row discount">
-                    <span>Discount / Voucher</span>
+                    <span>{SLIP_TEXT.discount}</span>
                     <span className="num-target">-₱{inspectDoc.discountAmount || '0.00'}</span>
                   </div>
                   <div className="totals-row">

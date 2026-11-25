@@ -140,7 +140,7 @@ export default function WaybillTicket({
                   ₱{ln.unitPrice ?? ln.unit_price ?? ln.price ?? '0.00'}
                 </td>
                 <td style={{ textAlign: 'right', fontWeight: 800 }}>
-                  ₱{ln.lineTotal ?? ln.line_total ?? ln.total ?? '0.00'}
+                  ₱{ln.grossAmount ?? ln.lineTotal ?? ln.line_total ?? ln.total ?? '0.00'}
                 </td>
               </tr>
             ))}
@@ -150,7 +150,7 @@ export default function WaybillTicket({
 
       <div className="waybill-tax-box">
         <div className="waybill-tax-row">
-          <span>Discount / Voucher:</span>
+          <span>{SLIP_TEXT.discount}:</span>
           <strong>-₱{discountAmount || '0.00'}</strong>
         </div>
         <div className="waybill-tax-row">

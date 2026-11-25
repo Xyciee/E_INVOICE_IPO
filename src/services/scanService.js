@@ -1,3 +1,4 @@
+import { SLIP_TEXT } from '../config/invoicePrint';
 import { getCsrfToken } from './authService';
 import { apiRequest } from './apiClient';
 
@@ -644,6 +645,11 @@ export function normalizeOrderLine(line, idx = 0) {
     line.voucher_amount ??
     0;
   const lineDiscountNum = toMoneyNumber(rawLineDiscount);
+  // Amount BEFORE the line's discount (quantity x unit price), for the printout's Total column (2026-11-25): the
+  // discount is shown once, in the totals box, so the slip adds up as items - discount = invoice total.
+  // line_total + discount_amount equals quantity x unit price in the ledger (incl. Shopee bundle rounding).
+  let grossNum = Number.isFinite(totalNum) && Number.isFinite(lineDiscountNum) ? totalNum + lineDiscountNum : NaN;
+  if (!Number.isFinite(grossNum) && Number.isFinite(unitNum)) grossNum = unitNum * qty;
 
   return {
     id: line.id || line.line_id || idx + 1,
@@ -653,7 +659,8 @@ export function normalizeOrderLine(line, idx = 0) {
     unitPrice: formatMoney(unitNum, rawUnit ? String(rawUnit) : '0.00'),
     discountAmount: formatMoney(lineDiscountNum, '0.00'),
     vatAmount: formatMoney(lineVatNum, '0.00'),
-    lineTotal: formatMoney(totalNum, rawTotal ? String(rawTotal) : '0.00')
+    lineTotal: formatMoney(totalNum, rawTotal ? String(rawTotal) : '0.00'),
+    grossAmount: formatMoney(Math.round(grossNum * 100) / 100, rawTotal ? String(rawTotal) : '0.00')
   };
 }
 
@@ -1596,7 +1603,7 @@ export function downloadWaybillSoftCopy(doc) {
 
     const qtyStr = String(ln.qty ?? ln.quantity ?? 1);
     const priceStr = `₱${ln.unitPrice ?? ln.unit_price ?? '0.00'}`;
-    const totalStr = `₱${ln.lineTotal ?? ln.line_total ?? '0.00'}`;
+    const totalStr = `₱${ln.grossAmount ?? ln.lineTotal ?? ln.line_total ?? '0.00'}`;
 
     ctx.font = 'bold 10px monospace';
     ctx.fillText(qtyStr, 255, y + 10);
@@ -1622,7 +1629,7 @@ export function downloadWaybillSoftCopy(doc) {
   ctx.stroke();
 
   const taxRows = [
-    ['Discount / Voucher:', `-₱${doc.discountAmount || '0.00'}`],
+    [`${SLIP_TEXT.discount}:`, `-₱${doc.discountAmount || '0.00'}`],
     ['VATable Sales (Net):', `₱${doc.vatableSales || '0.00'}`],
     ['VAT Amount (12%):', `₱${doc.vatAmount || '0.00'}`],
     ['VAT-Exempt Sales:', `₱${doc.vatExemptSales || '0.00'}`],
