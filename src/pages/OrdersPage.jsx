@@ -481,17 +481,18 @@ export default function OrdersPage({ onNavigate }) {
       return;
     }
 
-    if (!portalQrSvg) {
-      // The QR code (buyer portal) comes with the document; an order issued earlier has none in this row yet.
-      const detailRes = await fetchDocumentDetails(issuedDocId);
-      portalQrSvg = detailRes?.ok ? detailRes.data?.portal_qr_svg || null : null;
-    }
+    // The QR code (buyer portal) and the printout rules (buyer block, amount paid by buyer) come with the document.
+    const detailRes = await fetchDocumentDetails(issuedDocId);
+    const detailNorm = detailRes?.ok && detailRes.data ? normalizeDocumentRecord(detailRes.data) : null;
+    portalQrSvg = portalQrSvg || detailNorm?.portalQrSvg || null;
 
     const finalRecord = {
       ...target,
       id: issuedDocId,
       documentNumber: issuedDocNumber,
-      portalQrSvg
+      portalQrSvg,
+      printout: detailNorm?.printout || null,
+      buyerPaidAmount: detailNorm?.buyerPaidAmount ?? null
     };
 
     savePrintedInvoiceRecord(finalRecord, {
@@ -1528,6 +1529,8 @@ export default function OrdersPage({ onNavigate }) {
             zeroRatedSales={printableOrder.zeroRatedSales || '0.00'}
             totalAmount={printableOrder.totalAmount || '0.00'}
             portalQrSvg={printableOrder.portalQrSvg}
+            printout={printableOrder.printout}
+            buyerPaidAmount={printableOrder.buyerPaidAmount}
           />
         </div>
       )}

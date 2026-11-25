@@ -1,10 +1,5 @@
 import React from 'react';
-
-// Wording next to the QR code. Official BIR wording is added after the PTI.
-const PORTAL_TEXT = {
-  title: 'Scan to view this invoice online',
-  hint: 'Opens your invoice on our website. Keep this slip.'
-};
+import { SLIP_TEXT, platformName } from '../config/invoicePrint';
 
 export default function WaybillTicket({
   platform,
@@ -28,9 +23,23 @@ export default function WaybillTicket({
   buyerAddress,
   referenceLines = [],
   // Buyer portal: QR code (SVG text from the backend, portal_qr_svg) that opens the invoice online
-  portalQrSvg
+  portalQrSvg,
+  // Backend printout rules (document response `printout`, 2026-11-25). When given, the buyer block always prints:
+  // with the stored buyer (reissued / Odoo invoices) or blank (generic marketplace buyer such as "Shopee Buyer").
+  printout,
+  // Information only, below the total and outside the VAT figures; omitted when unknown
+  buyerPaidAmount,
+  platformVoucherAmount
 }) {
-  const tinBranch = [buyerTin, buyerBranchCode].filter((v) => v && v !== '—').join(' - ');
+  const ruled = printout && printout.buyer ? printout.buyer : null;
+  const buyerShown = ruled ? true : showBuyer;
+  const soldTo = ruled ? (ruled.show ? ruled.name : '') : (buyerName || '—');
+  const soldAddress = ruled ? (ruled.show ? ruled.address : '') : (buyerAddress || '—');
+  const tinBranch = ruled
+    ? (ruled.show ? ruled.tin_branch : '')
+    : ([buyerTin, buyerBranchCode].filter((v) => v && v !== '—').join(' - ') || '—');
+  const paid = buyerPaidAmount ?? printout?.buyer_paid_amount ?? null;
+  const voucher = platformVoucherAmount ?? printout?.platform_voucher_amount ?? null;
   return (
     <div className="waybill-sheet">
       <div className="waybill-top-bar">
@@ -76,19 +85,19 @@ export default function WaybillTicket({
         )}
       </div>
 
-      {showBuyer && (
+      {buyerShown && (
         <div className="waybill-meta-grid">
           <div className="waybill-meta-cell full-row">
-            <div className="waybill-cell-label">Sold To</div>
-            <div className="waybill-cell-val">{buyerName || '—'}</div>
+            <div className="waybill-cell-label">{SLIP_TEXT.soldTo}</div>
+            <div className="waybill-cell-val">{soldTo || ' '}</div>
           </div>
           <div className="waybill-meta-cell full-row">
-            <div className="waybill-cell-label">Address</div>
-            <div className="waybill-cell-val">{buyerAddress || '—'}</div>
+            <div className="waybill-cell-label">{SLIP_TEXT.address}</div>
+            <div className="waybill-cell-val">{soldAddress || ' '}</div>
           </div>
           <div className="waybill-meta-cell full-row">
-            <div className="waybill-cell-label">TIN - Branch</div>
-            <div className="waybill-cell-val" style={{ fontFamily: 'monospace' }}>{tinBranch || '—'}</div>
+            <div className="waybill-cell-label">{SLIP_TEXT.tinBranch}</div>
+            <div className="waybill-cell-val" style={{ fontFamily: 'monospace' }}>{tinBranch || ' '}</div>
           </div>
         </div>
       )}
@@ -167,6 +176,23 @@ export default function WaybillTicket({
         <span>₱{totalAmount || '0.00'}</span>
       </div>
 
+      {(voucher != null || paid != null) && (
+        <div className="waybill-info-box">
+          {voucher != null && (
+            <div className="waybill-tax-row">
+              <span>{SLIP_TEXT.platformVoucher.replace('{platform}', platformName(platform))}:</span>
+              <span>₱{voucher}</span>
+            </div>
+          )}
+          {paid != null && (
+            <div className="waybill-tax-row">
+              <span>{SLIP_TEXT.buyerPaid}:</span>
+              <span>₱{paid}</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {portalQrSvg && (
         <div className="waybill-portal-box">
           <img
@@ -175,8 +201,8 @@ export default function WaybillTicket({
             src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(portalQrSvg)}`}
           />
           <div className="waybill-portal-text">
-            <strong>{PORTAL_TEXT.title}</strong>
-            <span>{PORTAL_TEXT.hint}</span>
+            <strong>{SLIP_TEXT.portalTitle}</strong>
+            <span>{SLIP_TEXT.portalHint}</span>
           </div>
         </div>
       )}
