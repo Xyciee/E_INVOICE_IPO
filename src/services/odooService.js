@@ -48,7 +48,9 @@ export const SYNC_STATUS = {
   ok: { label: 'Up to date', tone: 'ok' },
   stale: { label: 'Not synced for 30+ min', tone: 'warn' },
   failing: { label: 'Last sync failed', tone: 'bad' },
-  off: { label: 'Not set up', tone: 'off' }
+  off: { label: 'Not set up', tone: 'off' },
+  // status off because IT switched Odoo off (odoo_enabled false), not because it is not set up
+  switched_off: { label: 'Switched off', tone: 'bad' }
 };
 
 export function keyBanner(status, daysLeft, expiresOn) {
