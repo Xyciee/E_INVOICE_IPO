@@ -38,8 +38,22 @@ export default function WaybillTicket({
   const tinBranch = ruled
     ? (ruled.show ? ruled.tin_branch : '')
     : ([buyerTin, buyerBranchCode].filter((v) => v && v !== '—').join(' - ') || '—');
+  // Payment information lines (2026-11-27): ready-made by the backend from invoicing.order_payment_info (labels in
+  // portal/texts.py PAYMENT_TEXTS, so the slip and the buyer page say the same). Without them (draft preview, scan
+  // screen before issuing) the slip falls back to the single amounts passed in.
+  const readyLines = Array.isArray(printout?.payment_lines) ? printout.payment_lines : null;
   const paid = buyerPaidAmount ?? printout?.buyer_paid_amount ?? null;
   const voucher = platformVoucherAmount ?? printout?.platform_voucher_amount ?? null;
+  const infoLines = readyLines && readyLines.length > 0
+    ? readyLines.map((l) => ({ key: l.key, label: l.label, amount: l.amount }))
+    : [
+      voucher != null && {
+        key: 'platform_voucher',
+        label: SLIP_TEXT.platformVoucher.replace('{platform}', platformName(platform)),
+        amount: voucher
+      },
+      paid != null && { key: 'buyer_paid', label: SLIP_TEXT.buyerPaid, amount: paid }
+    ].filter(Boolean);
   return (
     <div className="waybill-sheet">
       <div className="waybill-top-bar">
@@ -176,20 +190,15 @@ export default function WaybillTicket({
         <span>₱{totalAmount || '0.00'}</span>
       </div>
 
-      {(voucher != null || paid != null) && (
+      {infoLines.length > 0 && (
         <div className="waybill-info-box">
-          {voucher != null && (
-            <div className="waybill-tax-row">
-              <span>{SLIP_TEXT.platformVoucher.replace('{platform}', platformName(platform))}:</span>
-              <span>₱{voucher}</span>
+          <div className="waybill-info-title">{SLIP_TEXT.paymentTitle}</div>
+          {infoLines.map((line) => (
+            <div className="waybill-tax-row" key={line.key}>
+              <span>{line.label}:</span>
+              <span>₱{line.amount}</span>
             </div>
-          )}
-          {paid != null && (
-            <div className="waybill-tax-row">
-              <span>{SLIP_TEXT.buyerPaid}:</span>
-              <span>₱{paid}</span>
-            </div>
-          )}
+          ))}
         </div>
       )}
 

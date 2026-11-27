@@ -827,6 +827,7 @@ export function normalizeDocumentRecord(raw) {
   );
 
   const rawDiscount =
+    doc.discount_total ?? // invoicing.documents / invoiceable_orders column name
     doc.discount_amount ??
     doc.total_discount ??
     doc.discount ??
@@ -992,6 +993,7 @@ export function normalizeDocumentRecord(raw) {
     // Printout rules from the backend (2026-11-25): buyer block ({show, name, address, tin_branch}; blank for the
     // generic marketplace buyer) and what the buyer paid on the platform (information line, never the total)
     printout: raw.printout || null,
+    paymentLines: Array.isArray(raw.printout?.payment_lines) ? raw.printout.payment_lines : [],
     buyerPaidAmount: (() => {
       const paid = raw.printout?.buyer_paid_amount ?? raw.invoice_totals?.buyer_paid_amount ??
         (doc !== order && order.total_amount != null ? order.total_amount : null);
@@ -1464,7 +1466,10 @@ export function downloadWaybillSoftCopy(doc) {
         }
       ];
 
-  const baseHeight = 460 + linesList.length * 42;
+  // Payment information lines below the total (2026-11-27), as on the printed slip
+  const infoLines = Array.isArray(doc.paymentLines) ? doc.paymentLines : [];
+  const infoHeight = infoLines.length > 0 ? 26 + infoLines.length * 16 : 0;
+  const baseHeight = 460 + linesList.length * 42 + infoHeight;
   const height = Math.max(600, baseHeight);
 
   const canvas = document.createElement('canvas');
@@ -1651,7 +1656,8 @@ export function downloadWaybillSoftCopy(doc) {
 
   const totalTop = taxTop + taxBoxHeight;
   ctx.fillStyle = '#0f172a';
-  ctx.fillRect(10, totalTop, width - 20, height - 10 - totalTop);
+  const barHeight = infoLines.length > 0 ? 40 : height - 10 - totalTop;
+  ctx.fillRect(10, totalTop, width - 20, barHeight);
 
   ctx.fillStyle = '#ffffff';
   ctx.font = 'bold 13px sans-serif';
@@ -1661,6 +1667,22 @@ export function downloadWaybillSoftCopy(doc) {
   ctx.font = 'bold 15px monospace';
   const grandW = ctx.measureText(grandStr).width;
   ctx.fillText(grandStr, width - 20 - grandW, totalTop + 25);
+
+  if (infoLines.length > 0) {
+    let iy = totalTop + barHeight + 16;
+    ctx.fillStyle = '#475569';
+    ctx.font = 'bold 9px sans-serif';
+    ctx.fillText(SLIP_TEXT.paymentTitle.toUpperCase(), 20, iy);
+    ctx.font = '11px sans-serif';
+    ctx.fillStyle = '#334155';
+    infoLines.forEach((line) => {
+      iy += 16;
+      const label = `${line.label}:`;
+      const val = `₱${line.amount}`;
+      ctx.fillText(label.slice(0, 58), 20, iy);
+      ctx.fillText(val, width - 20 - ctx.measureText(val).width, iy);
+    });
+  }
 
   const safeName = String(doc.documentNumber || doc.orderId || 'e-invoice')
     .replace(/[^a-zA-Z0-9_-]/g, '_');

@@ -215,18 +215,23 @@ export default function InvoicesPage() {
 
     if (draftRes?.ok && draftRes.data) {
       const draftNorm = normalizeDocumentRecord(draftRes.data);
+      // The issued document's amounts always win (a 0.00 discount is a real value); the draft only fills in when
+      // the document itself could not be read.
+      const docRead = Boolean(detailRes?.ok && detailRes.data);
       if (draftNorm && draftNorm.lines?.length) {
         updated = {
           ...updated,
           lines: updated.lines?.length ? updated.lines : draftNorm.lines,
           productSummary:
             updated.productSummary !== '—' ? updated.productSummary : draftNorm.productSummary,
-          discountAmount:
-            updated.discountAmount !== '0.00' ? updated.discountAmount : draftNorm.discountAmount,
-          vatableSales:
-            updated.vatableSales !== '0.00' ? updated.vatableSales : draftNorm.vatableSales,
-          vatAmount:
-            updated.vatAmount !== '0.00' ? updated.vatAmount : draftNorm.vatAmount
+          ...(docRead ? {} : {
+            discountAmount:
+              updated.discountAmount !== '0.00' ? updated.discountAmount : draftNorm.discountAmount,
+            vatableSales:
+              updated.vatableSales !== '0.00' ? updated.vatableSales : draftNorm.vatableSales,
+            vatAmount:
+              updated.vatAmount !== '0.00' ? updated.vatAmount : draftNorm.vatAmount
+          })
         };
       }
     }

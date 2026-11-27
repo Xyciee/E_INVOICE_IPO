@@ -42,7 +42,10 @@ export const SLIP_TEXT = {
   soldTo: 'Sold To',
   address: 'Address',
   tinBranch: 'TIN - Branch',
-  // {platform} = Shopee / Lazada / TikTok. Printed only when the platform voucher amount is known.
+  // Small heading above the payment information lines (below the total, outside the VAT figures).
+  paymentTitle: 'Payment information (not part of the invoice)',
+  // The payment lines themselves come ready-made from the backend (portal/texts.py PAYMENT_TEXTS, shared with the
+  // buyer page). These two are only used when the backend sent none (draft preview, scan screen before issuing).
   platformVoucher: 'Platform voucher (paid by {platform})',
   buyerPaid: 'Amount paid by buyer',
   // next to the QR code (buyer portal). Official BIR wording is added after the PTI.

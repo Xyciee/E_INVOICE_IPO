@@ -1188,6 +1188,15 @@
   color: #334155;
 }
 
+.waybill-info-title {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #475569;
+  margin-bottom: 1px;
+}
+
 /* Buyer portal QR code under the total (kept small: the slip is 100 x 150 mm) */
 .waybill-portal-box {
   display: flex;
