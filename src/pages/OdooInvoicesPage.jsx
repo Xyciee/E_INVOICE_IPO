@@ -236,10 +236,12 @@ export default function OdooInvoicesPage({ onNavigate }) {
   };
 
   const syncing = Boolean(syncRequest);
-  const chip = SYNC_STATUS[status?.status] || null;
+  const chip = SYNC_STATUS[status?.odoo_enabled === false ? 'switched_off' : status?.status] || null;
   const banner = (canSync || isIT) && status ? keyBanner(status.api_key_status, status.api_key_days_left,
     status.api_key_expires_on) : null;
   const notSetUp = status && !status.configured;
+  // IT switched Odoo off in Odoo Connection (2026-11-27): only IT still sees this screen; nothing can be synced
+  const switchedOff = status && status.odoo_enabled === false;
   // the filter shows whenever the backend lists companies (every company chosen in Odoo Connection, also one
   // with nothing synced yet); the column only when there is more than one (else it says the same on every row)
   const showCompanyFilter = companies.length > 0 || Boolean(filters.company_id);
@@ -263,8 +265,9 @@ export default function OdooInvoicesPage({ onNavigate }) {
             <button
               className="btn btn-primary"
               onClick={() => setSyncDialog(true)}
-              disabled={syncing || notSetUp}
-              title={notSetUp ? 'Odoo connection not set up (IT)' : 'Choose what to read from Odoo now'}
+              disabled={syncing || notSetUp || switchedOff}
+              title={switchedOff ? 'Odoo is switched off (Odoo Connection)'
+                : notSetUp ? 'Odoo connection not set up (IT)' : 'Choose what to read from Odoo now'}
             >
               {syncing ? <RefreshCw size={16} className="odoo-spin" /> : <CloudDownload size={16} />}
               {syncing ? (syncRequest.status === 'running' ? 'Syncing…' : 'Waiting to sync…') : 'Sync now'}
@@ -278,7 +281,16 @@ export default function OdooInvoicesPage({ onNavigate }) {
           <AlertTriangle size={18} /> <span>{banner.text}</span>
         </div>
       )}
-      {notSetUp && (
+      {switchedOff && (
+        <div className="odoo-banner odoo-banner-bad">
+          <AlertTriangle size={18} />
+          <span>
+            Odoo is switched off. Nothing is synced, no Odoo e-invoices are issued, and only IT can open this screen.
+            Switch it on again in Odoo Connection.
+          </span>
+        </div>
+      )}
+      {notSetUp && !switchedOff && (
         <div className="odoo-banner odoo-banner-warn">
           <AlertTriangle size={18} />
           <span>{canSync ? 'Odoo connection not set up (IT). ' : ''}{status.problem}</span>

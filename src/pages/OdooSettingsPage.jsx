@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { PlugZap, Save, Trash2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { PlugZap, Power, Save, Trash2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm, useNotify } from '../context/NotificationContext';
 import {
@@ -55,7 +55,7 @@ function requestBody(form) {
 /** The last sync and the e-invoices issued after it (GET /api/odoo/sync-runs). */
 function LastSync({ runs }) {
   const last = (runs.runs || [])[0];
-  const chip = SYNC_STATUS[runs.status];
+  const chip = SYNC_STATUS[runs.odoo_enabled === false ? 'switched_off' : runs.status];
   const e = runs.last_einvoices;
   return (
     <div className="odoo-last-sync">
@@ -100,8 +100,36 @@ function LastSync({ runs }) {
   );
 }
 
+/*
+ * IT's master switch (2026-11-27): off = no sync of any kind, no Odoo e-invoices, queued Sync now requests cancelled,
+ * and the Odoo screens closed to everyone except IT. Saved on its own (PUT {odoo_enabled}), separate from the form.
+ */
+function OdooSwitch({ settings, busy, onSwitch }) {
+  const on = settings?.odoo_enabled !== false;
+  return (
+    <div className={`card-section odoo-switch ${on ? 'odoo-switch-on' : 'odoo-switch-off'}`}>
+      <div className="odoo-switch-text">
+        <div className="odoo-section-title" style={{ margin: 0 }}>
+          <Power size={16} /> Odoo is {on ? 'switched on' : 'switched off'}
+        </div>
+        <p className="odoo-muted" style={{ margin: '4px 0 0 0' }}>
+          {on
+            ? 'Invoices are read from Odoo and their e-invoices issued. Accounting and Executive can open Odoo Invoices.'
+            : 'Nothing is read from Odoo and no Odoo e-invoices are issued. Odoo Invoices is closed to everyone except IT. '
+              + 'E-invoices already issued stay in the Invoices Tracker and on Credit Notes.'}
+        </p>
+      </div>
+      <button type="button" className={`btn ${on ? 'btn-danger' : 'btn-primary'}`} onClick={() => onSwitch(!on)}
+        disabled={Boolean(busy) || !settings}>
+        {busy === 'switch' ? <RefreshCw size={16} className="odoo-spin" /> : <Power size={16} />}
+        {on ? ' Switch Odoo off' : ' Switch Odoo on'}
+      </button>
+    </div>
+  );
+}
+
 export default function OdooSettingsPage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const notify = useNotify();
   const confirm = useConfirm();
   const allowed = (user?.permissions || []).includes('manage_odoo_settings');
@@ -205,6 +233,33 @@ export default function OdooSettingsPage() {
     }
   };
 
+  const handleSwitch = async (value) => {
+    if (!value) {
+      const ok = await confirm({
+        title: 'Switch Odoo off?',
+        message: 'Nothing will be read from Odoo and no Odoo e-invoices will be issued. A queued Sync now is cancelled. '
+          + 'Accounting and Executive will no longer see Odoo Invoices. You can switch it on again here at any time.',
+        confirmText: 'Switch off',
+        cancelText: 'Keep it on',
+        variant: 'danger'
+      });
+      if (!ok) return;
+    }
+    setBusy('switch');
+    const res = await odooApi.saveSettings({ odoo_enabled: value });
+    setBusy('');
+    if (!res.ok) {
+      notify.danger('Not changed', errorText(res, 'Odoo could not be switched.'));
+      return;
+    }
+    setSettings(res.data);
+    const runsRes = await odooApi.syncRuns();
+    if (runsRes.ok) setRuns(runsRes.data);
+    if (refreshUser) refreshUser();
+    notify.success(value ? 'Odoo switched on' : 'Odoo switched off',
+      value ? 'The next scheduled sync runs as usual.' : 'Nothing is synced until you switch it on again.');
+  };
+
   const keyPlaceholder = settings?.api_key_set
     ? `•••• ${settings.api_key_last4} — set ${settings.api_key_set_at ? formatDateTime(settings.api_key_set_at) : ''}${settings.api_key_set_by ? ` by ${settings.api_key_set_by}` : ''}`
     : 'Paste the API key made in Odoo';
@@ -232,7 +287,9 @@ export default function OdooSettingsPage() {
           ODOO_SETTINGS_ENCRYPTION_KEY to the server's .env (see the runbook).
         </div>
       )}
-      {settings?.problem && settings.encryption_key_configured && (
+      <OdooSwitch settings={settings} busy={busy} onSwitch={handleSwitch} />
+
+      {settings?.problem && settings.encryption_key_configured && settings.odoo_enabled !== false && (
         <div className="odoo-banner odoo-banner-warn"><AlertTriangle size={18} /> {settings.problem}</div>
       )}
       {banner && <div className={`odoo-banner odoo-banner-${banner.tone}`}><AlertTriangle size={18} /> {banner.text}</div>}

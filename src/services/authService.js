@@ -80,6 +80,8 @@ function formatUserProfile(profile, fallbackIdentifier) {
     assignedStations: stations,
     reprintReasons,
     appEnv: profile?.app_env || 'production',
+    // IT's Odoo on/off switch (2026-11-27); the Odoo permissions are already withheld when it is off
+    odooEnabled: profile?.odoo_enabled !== false,
     mustChangePassword: Boolean(profile?.must_change_password)
   };
 }

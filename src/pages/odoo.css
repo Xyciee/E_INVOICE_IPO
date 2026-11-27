@@ -49,6 +49,22 @@
 .odoo-chip-off { background: var(--secondary-light); color: var(--secondary-hover); }
 .odoo-chip-info { background: var(--info-light); color: var(--info-hover); }
 
+/* Odoo on/off switch on Odoo Connection (2026-11-27) */
+.odoo-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  border-left: 4px solid var(--accent-emerald, #10b981);
+}
+.odoo-switch-off {
+  border-left-color: #ef4444;
+}
+.odoo-switch-text {
+  flex: 1 1 320px;
+}
+
 .odoo-banner {
   display: flex;
   align-items: flex-start;
